@@ -1,0 +1,6 @@
+{
+  "name": "Social Wars - 5-Player Social Strategy Platform",
+  "description": "Trust Nobody. Read Everyone. Play Smart. A premium 5-player real-time multiplayer social deduction, detective mystery, and secret auction strategy platform.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
