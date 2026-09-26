@@ -192,7 +192,7 @@ export const Lobby: React.FC<LobbyProps> = ({
             <h3 className="font-extrabold text-sm text-slate-200 uppercase tracking-wider flex items-center gap-2">
               <Users className="w-4 h-4 text-purple-400" /> Connected Players ({playerCount}/5)
             </h3>
-            <span className="text-xs text-slate-500 font-medium">Min 3 • Max 5</span>
+            <span className="text-xs text-slate-500 font-medium">Min 2 • Max 5</span>
           </div>
 
           <div className="space-y-2.5">
@@ -487,11 +487,11 @@ export const Lobby: React.FC<LobbyProps> = ({
 
           {/* Launch Match Button */}
           <div className="pt-4 border-t border-slate-800 space-y-2">
-            {playerCount < 3 && (
+            {playerCount < 2 && (
               <div className="flex items-center gap-2 text-xs text-cyan-400 bg-cyan-950/40 border border-cyan-500/30 p-2.5 rounded-xl font-medium">
                 <Bot className="w-4 h-4 shrink-0 text-cyan-400" />
                 <span>
-                  {playerCount === 1 ? 'Solo mode:' : `${playerCount}/5 players:`} Starting will auto-fill with tactical AI bots to reach the 3-player minimum.
+                  Solo mode: Starting will auto-fill 1 tactical AI bot to reach the 2-player minimum.
                 </span>
               </div>
             )}
@@ -502,8 +502,8 @@ export const Lobby: React.FC<LobbyProps> = ({
                 className="w-full py-4 bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 hover:from-amber-400 hover:to-purple-500 text-white font-black text-sm rounded-2xl shadow-xl shadow-purple-500/20 transition active:scale-95 flex items-center justify-center gap-2 tracking-wider cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-white" />
-                {playerCount < 3
-                  ? `START MATCH (AUTO-FILL BOTS)`
+                {playerCount < 2
+                  ? `START MATCH (AUTO-FILL BOT)`
                   : `START MATCH (${playerCount} PLAYERS)`}
               </button>
             ) : (

@@ -348,13 +348,13 @@ class LocalRoomEngine {
         const room = this.findRoomOfPlayer(playerId);
         if (!room) return;
 
-        // Ensure at least 3 players for gameplay experience by injecting AI simulation peers if solo
+        // Ensure at least 2 players for gameplay experience by injecting AI simulation peers if solo
         const existingPlayers = Object.values(room.players);
-        if (existingPlayers.length < 3) {
+        if (existingPlayers.length < 2) {
           const names = ['Rahul', 'Arjun', 'Sai', 'Vikram'];
           const avatars = ['🐺', '🦊', '🐯', '🦁'];
           let idx = 0;
-          while (Object.values(room.players).length < 3) {
+          while (Object.values(room.players).length < 2) {
             const botId = `bot_${Date.now()}_${idx}`;
             room.players[botId] = {
               id: botId,

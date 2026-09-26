@@ -528,11 +528,11 @@ function handleClientMessage(ws: WebSocket, msg: any) {
       const room = rooms.get(roomId);
       if (!room || room.hostId !== playerId) return;
 
-      // Auto-fill bots if fewer than 3 players
+      // Auto-fill bots if fewer than 2 players
       const botNames = ['Vikram (AI)', 'Arjun (AI)', 'Sai (AI)', 'Ananya (AI)'];
       const botAvatars = ['🤖', '🦊', '🦁', '🦉'];
       let bIdx = 0;
-      while (Object.keys(room.players).length < 3) {
+      while (Object.keys(room.players).length < 2) {
         const botId = `bot_${Date.now()}_${bIdx}`;
         room.players[botId] = {
           id: botId,
