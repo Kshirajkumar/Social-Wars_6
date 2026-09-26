@@ -240,6 +240,7 @@ export default function App() {
                 players={room.players}
                 currentPlayerId={currentPlayerId}
                 isHost={isHost}
+                messages={chatMessages}
                 onOpenHintModal={() => setShowHintModal(true)}
               />
             )}

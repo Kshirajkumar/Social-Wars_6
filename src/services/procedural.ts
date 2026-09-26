@@ -660,16 +660,13 @@ export function generateDrawAndGuessGame(
   difficulty: GlobalDifficulty,
   level: number
 ): DrawAndGuessGameState {
-  // Only select actual real human players for drawing turns
   const realPlayers = players.filter(
     (p) => p && !p.id.toLowerCase().includes('bot') && !p.id.toLowerCase().includes('ai')
   );
   const activePool = realPlayers.length > 0 ? realPlayers : players;
-  const drawerIndex = Math.floor(Math.random() * activePool.length);
-  const drawer = activePool[drawerIndex] || activePool[0];
+  const initialCandidate = activePool[Math.floor(Math.random() * activePool.length)] || activePool[0];
   const wordObj = getRandomWordByDifficulty(difficulty);
 
-  // Mask word: replace A-Z letters with _
   const maskedWord = wordObj.word
     .split('')
     .map((char) => (/[A-Za-z]/.test(char) ? '_' : char))
@@ -680,17 +677,17 @@ export function generateDrawAndGuessGame(
     scores[p.id] = 0;
   });
 
-  const durationSec = getDrawAndGuessRoundDuration(difficulty, level);
   const now = Date.now();
+  const pollDuration = 10000; // 10s voting poll
 
   return {
     round: 1,
-    maxRounds: 10, // 10 rounds match
-    phase: 'DRAWING',
+    maxRounds: 10,
+    phase: 'ARTIST_POLL',
     serverStartTime: now,
-    serverEndTime: now + durationSec * 1000,
-    currentDrawerId: drawer.id,
-    currentDrawerName: drawer.name,
+    serverEndTime: now + pollDuration,
+    currentDrawerId: initialCandidate.id,
+    currentDrawerName: initialCandidate.name,
     currentWord: wordObj.word.toUpperCase(),
     category: wordObj.category,
     maskedWord,
@@ -699,5 +696,6 @@ export function generateDrawAndGuessGame(
     correctGuessers: [],
     playerScores: scores,
     usedWords: [wordObj.word],
+    artistVotes: {},
   };
 }

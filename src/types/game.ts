@@ -316,7 +316,7 @@ export interface CorrectGuesser {
 export interface DrawAndGuessGameState {
   round: number;
   maxRounds: number;
-  phase: 'DRAWING' | 'ROUND_SUMMARY' | 'RESOLUTION';
+  phase: 'ARTIST_POLL' | 'DRAWING' | 'ROUND_SUMMARY' | 'RESOLUTION';
   serverStartTime: number;
   serverEndTime: number;
   currentDrawerId: string;
@@ -329,6 +329,7 @@ export interface DrawAndGuessGameState {
   correctGuessers: CorrectGuesser[];
   playerScores: Record<string, number>;
   usedWords: string[];
+  artistVotes?: Record<string, string>; // voterPlayerId -> candidatePlayerId
 }
 
 /* ==================== GENERAL GAME CONTAINER ==================== */

@@ -415,10 +415,6 @@ class SocketService {
     this.send('SET_READY');
   }
 
-  public addBotPlayer() {
-    this.send('HOST_ADD_BOT');
-  }
-
   public updateSettings(settings: any) {
     this.send('HOST_UPDATE_SETTINGS', settings);
   }

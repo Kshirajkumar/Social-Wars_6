@@ -348,31 +348,9 @@ class LocalRoomEngine {
         const room = this.findRoomOfPlayer(playerId);
         if (!room) return;
 
-        // Ensure at least 2 players for gameplay experience by injecting AI simulation peers if solo
+        // Require at least 2 real players to start
         const existingPlayers = Object.values(room.players);
-        if (existingPlayers.length < 2) {
-          const names = ['Rahul', 'Arjun', 'Sai', 'Vikram'];
-          const avatars = ['🐺', '🦊', '🐯', '🦁'];
-          let idx = 0;
-          while (Object.values(room.players).length < 2) {
-            const botId = `bot_${Date.now()}_${idx}`;
-            room.players[botId] = {
-              id: botId,
-              name: names[idx],
-              avatar: avatars[idx],
-              title: 'Mastermind',
-              isHost: false,
-              isReady: true,
-              isConnected: true,
-              score: 0,
-              sessionToken: `token_bot_${idx}`,
-              lastActive: Date.now(),
-              hintsUsed: 0,
-            };
-            room.playerOrder.push(botId);
-            idx++;
-          }
-        }
+        if (existingPlayers.length < 2) return;
 
         room.phase = 'PLAYING';
         const gameType = room.settings.selectedGame;
@@ -635,34 +613,36 @@ class LocalRoomEngine {
     }
   }
 
-  private rotateDrawAndGuessRound(room: RoomState) {
+  private resolveArtistPollLocal(room: RoomState) {
     if (!room.drawAndGuessState) return;
     const dg = room.drawAndGuessState;
-    if (dg.round >= dg.maxRounds) {
-      this.finishMatch(room, 'DRAW_AND_GUESS');
-      return;
-    }
 
-    dg.round += 1;
-    const activeHumanPlayerIds = (
-      room.playerOrder && room.playerOrder.length > 0
-        ? room.playerOrder
-        : Object.keys(room.players)
-    ).filter(
-      (id) =>
-        room.players[id] &&
-        !id.toLowerCase().includes('bot') &&
-        !id.toLowerCase().includes('ai')
+    const votes = dg.artistVotes || {};
+    const tallies: Record<string, number> = {};
+    Object.values(votes).forEach((targetId) => {
+      tallies[targetId] = (tallies[targetId] || 0) + 1;
+    });
+
+    const realPlayers = Object.values(room.players).filter(
+      (p) => !p.id.toLowerCase().includes('bot') && !p.id.toLowerCase().includes('ai')
     );
+    const activePool = realPlayers.length > 0 ? realPlayers : Object.values(room.players);
 
-    const humanList = activeHumanPlayerIds.length > 0 ? activeHumanPlayerIds : Object.keys(room.players);
-    const currentIdx = humanList.indexOf(dg.currentDrawerId);
-    const nextDrawerId = humanList[(currentIdx + 1) % humanList.length] || humanList[0];
+    let topCandidateId = activePool[0]?.id || '';
+    let maxVotes = -1;
+
+    activePool.forEach((p) => {
+      const v = tallies[p.id] || 0;
+      if (v > maxVotes) {
+        maxVotes = v;
+        topCandidateId = p.id;
+      }
+    });
+
+    dg.currentDrawerId = topCandidateId;
+    dg.currentDrawerName = room.players[topCandidateId]?.name || 'Artist';
 
     const wordObj = getRandomWordByDifficulty(room.settings.difficulty, dg.usedWords);
-
-    dg.currentDrawerId = nextDrawerId;
-    dg.currentDrawerName = room.players[nextDrawerId]?.name || 'Artist';
     dg.currentWord = wordObj.word.toUpperCase();
     dg.category = wordObj.category;
     dg.maskedWord = wordObj.word
@@ -675,8 +655,25 @@ class LocalRoomEngine {
 
     const durationSec = getDrawAndGuessRoundDuration(room.settings.difficulty, room.settings.level);
     const now = Date.now();
+    dg.phase = 'DRAWING';
     dg.serverStartTime = now;
     dg.serverEndTime = now + durationSec * 1000;
+  }
+
+  private rotateDrawAndGuessRound(room: RoomState) {
+    if (!room.drawAndGuessState) return;
+    const dg = room.drawAndGuessState;
+    if (dg.round >= dg.maxRounds) {
+      this.finishMatch(room, 'DRAW_AND_GUESS');
+      return;
+    }
+
+    dg.round += 1;
+    dg.phase = 'ARTIST_POLL';
+    dg.artistVotes = {};
+    const now = Date.now();
+    dg.serverStartTime = now;
+    dg.serverEndTime = now + 10000;
   }
 
   private findRoomOfPlayer(playerId: string): RoomState | undefined {
@@ -732,9 +729,20 @@ class LocalRoomEngine {
         this.broadcast({ type: 'ROOM_UPDATE', room });
       }
 
-      if (room.drawAndGuessState && now >= room.drawAndGuessState.serverEndTime) {
-        this.rotateDrawAndGuessRound(room);
-        this.broadcast({ type: 'ROOM_UPDATE', room });
+      if (room.drawAndGuessState) {
+        const dg = room.drawAndGuessState;
+        if (now >= dg.serverEndTime) {
+          if (dg.phase === 'ARTIST_POLL') {
+            this.resolveArtistPollLocal(room);
+          } else if (dg.phase === 'DRAWING') {
+            dg.phase = 'ROUND_SUMMARY';
+            dg.serverStartTime = now;
+            dg.serverEndTime = now + 5000;
+          } else if (dg.phase === 'ROUND_SUMMARY') {
+            this.rotateDrawAndGuessRound(room);
+          }
+          this.broadcast({ type: 'ROOM_UPDATE', room });
+        }
       }
     }
   }

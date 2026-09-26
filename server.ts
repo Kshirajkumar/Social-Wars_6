@@ -486,41 +486,6 @@ function handleClientMessage(ws: WebSocket, msg: any) {
       break;
     }
 
-    case 'HOST_ADD_BOT': {
-      const playerInfo = socketToPlayer.get(ws);
-      if (!playerInfo) return;
-      const { roomId, playerId } = playerInfo;
-      const room = rooms.get(roomId);
-      if (!room || room.hostId !== playerId) return;
-
-      const currentCount = Object.keys(room.players).length;
-      if (currentCount >= 5) return;
-
-      const botNames = ['Vikram (AI)', 'Arjun (AI)', 'Sai (AI)', 'Ananya (AI)', 'Rohan (AI)'];
-      const botAvatars = ['🤖', '🦊', '🦁', '🦉', '🥷'];
-      const botId = `bot_${Date.now()}_${currentCount}`;
-
-      const botPlayer: RoomPlayer = {
-        id: botId,
-        name: botNames[currentCount % botNames.length],
-        avatar: botAvatars[currentCount % botAvatars.length],
-        title: 'Tactical Bot',
-        badgeFrame: 'border-cyan-500/50',
-        isHost: false,
-        isReady: true,
-        isConnected: true,
-        score: 0,
-        sessionToken: `token_${botId}`,
-        lastActive: Date.now(),
-        hintsUsed: 0,
-      };
-
-      room.players[botId] = botPlayer;
-      room.playerOrder.push(botId);
-      broadcastRoom(roomId);
-      break;
-    }
-
     case 'HOST_START_GAME': {
       const playerInfo = socketToPlayer.get(ws);
       if (!playerInfo) return;
@@ -528,29 +493,8 @@ function handleClientMessage(ws: WebSocket, msg: any) {
       const room = rooms.get(roomId);
       if (!room || room.hostId !== playerId) return;
 
-      // Auto-fill bots if fewer than 2 players
-      const botNames = ['Vikram (AI)', 'Arjun (AI)', 'Sai (AI)', 'Ananya (AI)'];
-      const botAvatars = ['🤖', '🦊', '🦁', '🦉'];
-      let bIdx = 0;
-      while (Object.keys(room.players).length < 2) {
-        const botId = `bot_${Date.now()}_${bIdx}`;
-        room.players[botId] = {
-          id: botId,
-          name: botNames[bIdx % botNames.length],
-          avatar: botAvatars[bIdx % botAvatars.length],
-          title: 'Tactical Bot',
-          badgeFrame: 'border-cyan-500/50',
-          isHost: false,
-          isReady: true,
-          isConnected: true,
-          score: 0,
-          sessionToken: `token_${botId}`,
-          lastActive: Date.now(),
-          hintsUsed: 0,
-        };
-        room.playerOrder.push(botId);
-        bIdx++;
-      }
+      // Require at least 2 real players to start match
+      if (Object.keys(room.players).length < 2) return;
 
       const playerList = Object.values(room.players);
 
@@ -716,42 +660,61 @@ function handleClientMessage(ws: WebSocket, msg: any) {
         const isDrawer = playerId === dg.currentDrawerId;
         const alreadyGuessed = dg.correctGuessers.some((g) => g.playerId === playerId);
 
-        if (!isDrawer && !alreadyGuessed) {
-          const textClean = messageText.trim().toUpperCase();
-          if (textClean === dg.currentWord.trim().toUpperCase()) {
-            const rankNum = dg.correctGuessers.length + 1;
-            const points = rankNum === 1 ? 1000 : rankNum === 2 ? 700 : 500;
+        if (isDrawer || alreadyGuessed) {
+          // Artist or player who already guessed cannot send messages
+          return;
+        }
 
-            dg.correctGuessers.push({
-              playerId,
-              playerName: player.name,
-              rank: (rankNum <= 3 ? rankNum : 3) as 1 | 2 | 3,
-              pointsEarned: points,
-              timeTakenSeconds: Math.round((Date.now() - dg.serverStartTime) / 1000),
-            });
+        const normInput = messageText.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const normWord = dg.currentWord.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-            room.players[playerId].score += points;
-            if (room.players[dg.currentDrawerId]) {
-              room.players[dg.currentDrawerId].score += 300;
-            }
+        if (normInput === normWord) {
+          const rankNum = dg.correctGuessers.length + 1;
+          const points = rankNum === 1 ? 1000 : rankNum === 2 ? 700 : 500;
 
-            broadcastChatMessage(roomId, {
-              id: `chat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-              senderId: 'SYSTEM',
-              senderName: '🎉 WINNER ANNOUNCEMENT',
-              senderAvatar: '🏆',
-              text: `🎉 ${player.name} GUESSED THE WORD CORRECTLY! (${rankNum === 1 ? '🥇 1st Place! +1,000 Pts' : rankNum === 2 ? '🥈 2nd Place! +700 Pts' : '🥉 3rd Place! +500 Pts'})`,
-              timestamp: Date.now(),
-              isSystem: true,
-            });
+          dg.correctGuessers.push({
+            playerId,
+            playerName: player.name,
+            rank: (rankNum <= 3 ? rankNum : 3) as 1 | 2 | 3,
+            pointsEarned: points,
+            timeTakenSeconds: Math.max(1, Math.round((Date.now() - dg.serverStartTime) / 1000)),
+          });
 
-            const nonDrawersCount = Object.keys(room.players).length - 1;
-            if (dg.correctGuessers.length >= Math.min(3, nonDrawersCount)) {
-              rotateDrawAndGuessRoundServer(room);
-            }
-            broadcastRoom(roomId);
-            return;
+          room.players[playerId].score += points;
+          dg.playerScores[playerId] = (dg.playerScores[playerId] || 0) + points;
+
+          if (room.players[dg.currentDrawerId]) {
+            room.players[dg.currentDrawerId].score += 300;
+            dg.playerScores[dg.currentDrawerId] = (dg.playerScores[dg.currentDrawerId] || 0) + 300;
           }
+
+          const rankLabel = rankNum === 1 ? '🥇 1st Place! (+1,000 Pts)' : rankNum === 2 ? '🥈 2nd Place! (+700 Pts)' : '🥉 3rd Place! (+500 Pts)';
+
+          broadcastChatMessage(roomId, {
+            id: `chat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            senderId: 'SYSTEM',
+            senderName: '🎉 WINNER ANNOUNCEMENT',
+            senderAvatar: '🏆',
+            text: `🎉 ${player.name} guessed the correct word! ${rankLabel}`,
+            timestamp: Date.now(),
+            isSystem: true,
+          });
+
+          const realPlayers = Object.values(room.players).filter(
+            (p) => !p.id.toLowerCase().includes('bot') && !p.id.toLowerCase().includes('ai')
+          );
+          const nonDrawersCount = Math.max(1, realPlayers.length - 1);
+          const targetGuessers = Math.min(3, nonDrawersCount);
+
+          if (dg.correctGuessers.length >= targetGuessers) {
+            // 3 correct guesses reached! Stop timer and show 5-sec Round Summary
+            const now = Date.now();
+            dg.phase = 'ROUND_SUMMARY';
+            dg.serverStartTime = now;
+            dg.serverEndTime = now + 5000;
+          }
+          broadcastRoom(roomId);
+          return;
         }
       }
 
@@ -1031,41 +994,65 @@ function handleSecretAuctionAction(room: RoomState, playerId: string, action: st
 
 function handleDrawAndGuessAction(room: RoomState, playerId: string, action: string, data: any) {
   if (!room.drawAndGuessState) return;
+  const dg = room.drawAndGuessState;
+
   if (action === 'DRAW_STROKE') {
-    room.drawAndGuessState.drawingStrokes.push(data.stroke);
+    if (dg.phase === 'DRAWING' && playerId === dg.currentDrawerId) {
+      dg.drawingStrokes.push(data.stroke);
+    }
   } else if (action === 'CLEAR_CANVAS') {
-    room.drawAndGuessState.drawingStrokes = [];
+    if (dg.phase === 'DRAWING' && playerId === dg.currentDrawerId) {
+      dg.drawingStrokes = [];
+    }
+  } else if (action === 'VOTE_ARTIST') {
+    if (dg.phase === 'ARTIST_POLL') {
+      if (!dg.artistVotes) dg.artistVotes = {};
+      const candidateId = data.candidatePlayerId;
+      if (candidateId && room.players[candidateId]) {
+        dg.artistVotes[playerId] = candidateId;
+
+        const realPlayers = Object.values(room.players).filter(
+          (p) => !p.id.toLowerCase().includes('bot') && !p.id.toLowerCase().includes('ai')
+        );
+        const votesCount = Object.keys(dg.artistVotes).length;
+        if (votesCount >= realPlayers.length) {
+          resolveArtistPollServer(room);
+        }
+      }
+    }
   }
 }
 
-function rotateDrawAndGuessRoundServer(room: RoomState) {
+function resolveArtistPollServer(room: RoomState) {
   if (!room.drawAndGuessState) return;
   const dg = room.drawAndGuessState;
-  if (dg.round >= dg.maxRounds) {
-    finishGame(room, 'DRAW_AND_GUESS');
-    return;
-  }
 
-  dg.round += 1;
-  const activeHumanPlayerIds = (
-    room.playerOrder && room.playerOrder.length > 0
-      ? room.playerOrder
-      : Object.keys(room.players)
-  ).filter(
-    (id) =>
-      room.players[id] &&
-      !id.toLowerCase().includes('bot') &&
-      !id.toLowerCase().includes('ai')
+  const votes = dg.artistVotes || {};
+  const tallies: Record<string, number> = {};
+  Object.values(votes).forEach((targetId) => {
+    tallies[targetId] = (tallies[targetId] || 0) + 1;
+  });
+
+  const realPlayers = Object.values(room.players).filter(
+    (p) => !p.id.toLowerCase().includes('bot') && !p.id.toLowerCase().includes('ai')
   );
+  const activePool = realPlayers.length > 0 ? realPlayers : Object.values(room.players);
 
-  const humanList = activeHumanPlayerIds.length > 0 ? activeHumanPlayerIds : Object.keys(room.players);
-  const currentIdx = humanList.indexOf(dg.currentDrawerId);
-  const nextDrawerId = humanList[(currentIdx + 1) % humanList.length] || humanList[0];
+  let topCandidateId = activePool[0]?.id || '';
+  let maxVotes = -1;
+
+  activePool.forEach((p) => {
+    const v = tallies[p.id] || 0;
+    if (v > maxVotes) {
+      maxVotes = v;
+      topCandidateId = p.id;
+    }
+  });
+
+  dg.currentDrawerId = topCandidateId;
+  dg.currentDrawerName = room.players[topCandidateId]?.name || 'Artist';
 
   const wordObj = getRandomWordByDifficulty(room.settings.difficulty, dg.usedWords);
-
-  dg.currentDrawerId = nextDrawerId;
-  dg.currentDrawerName = room.players[nextDrawerId]?.name || 'Artist';
   dg.currentWord = wordObj.word.toUpperCase();
   dg.category = wordObj.category;
   dg.maskedWord = wordObj.word
@@ -1078,8 +1065,25 @@ function rotateDrawAndGuessRoundServer(room: RoomState) {
 
   const durationSec = getDrawAndGuessRoundDuration(room.settings.difficulty, room.settings.level);
   const now = Date.now();
+  dg.phase = 'DRAWING';
   dg.serverStartTime = now;
   dg.serverEndTime = now + durationSec * 1000;
+}
+
+function rotateDrawAndGuessRoundServer(room: RoomState) {
+  if (!room.drawAndGuessState) return;
+  const dg = room.drawAndGuessState;
+  if (dg.round >= dg.maxRounds) {
+    finishGame(room, 'DRAW_AND_GUESS');
+    return;
+  }
+
+  dg.round += 1;
+  dg.phase = 'ARTIST_POLL';
+  dg.artistVotes = {};
+  const now = Date.now();
+  dg.serverStartTime = now;
+  dg.serverEndTime = now + 10000;
 }
 
 /* ==================== FINISH GAME & SUMMARY CALCULATOR ==================== */
@@ -1265,11 +1269,24 @@ setInterval(() => {
         broadcastRoom(roomId);
       }
 
-      // Check Draw & Guess Round Transitions
-      if (room.drawAndGuessState && now >= room.drawAndGuessState.serverEndTime) {
-        rotateDrawAndGuessRoundServer(room);
-        broadcastRoom(roomId);
+    // Check Draw & Guess Phase Transitions
+    if (room.drawAndGuessState) {
+      const dg = room.drawAndGuessState;
+      if (now >= dg.serverEndTime) {
+        if (dg.phase === 'ARTIST_POLL') {
+          resolveArtistPollServer(room);
+          broadcastRoom(roomId);
+        } else if (dg.phase === 'DRAWING') {
+          dg.phase = 'ROUND_SUMMARY';
+          dg.serverStartTime = now;
+          dg.serverEndTime = now + 5000;
+          broadcastRoom(roomId);
+        } else if (dg.phase === 'ROUND_SUMMARY') {
+          rotateDrawAndGuessRoundServer(room);
+          broadcastRoom(roomId);
+        }
       }
+    }
     }
   }
 }, 1000);
