@@ -1,6 +1,8 @@
 import { RoomState, ChatMessage } from '../types/game';
 import { localEngine } from './localEngine';
 import { p2pMesh } from './p2pMesh';
+import { firebaseService } from './firebaseService';
+import { Unsubscribe } from 'firebase/firestore';
 
 type MessageHandler = (data: any) => void;
 
@@ -16,6 +18,8 @@ class SocketService {
   public sessionToken: string = '';
   public currentRoomCode: string = '';
   public walletBalance: number = 10000;
+  private firestoreUnsub: Unsubscribe | null = null;
+  private syncPollInterval: any = null;
 
   constructor() {
     this.playerId =
@@ -45,6 +49,18 @@ class SocketService {
       } else {
         // Guest receives authoritative state from Host
         this.handleServerMessage(data);
+      }
+    });
+
+    // Start background sync poll to guarantee state is continuously fresh
+    this.syncPollInterval = setInterval(() => {
+      this.backgroundSync();
+    }, 1500);
+
+    // Load persisted wallet from Firebase
+    firebaseService.getUserWallet(this.playerId).then((balance) => {
+      if (balance !== null) {
+        this.walletBalance = balance;
       }
     });
   }
@@ -150,10 +166,13 @@ class SocketService {
       sessionStorage.setItem('sw_room_code', this.currentRoomCode);
 
       localEngine.setActiveRoom(this.currentRoomCode);
+      this.subscribeToFirestore(this.currentRoomCode);
+      firebaseService.saveUserWallet(this.playerId, this.walletBalance);
     }
 
     if (type === 'HINT_DELIVERED') {
       this.walletBalance = msg.newWalletBalance;
+      firebaseService.saveUserWallet(this.playerId, this.walletBalance);
     }
 
     const typeListeners = this.listeners.get(type);
@@ -239,6 +258,40 @@ class SocketService {
     }
   }
 
+  private subscribeToFirestore(roomCode: string) {
+    if (this.firestoreUnsub) {
+      this.firestoreUnsub();
+      this.firestoreUnsub = null;
+    }
+
+    if (!roomCode) return;
+
+    this.firestoreUnsub = firebaseService.subscribeRoom(roomCode, (remoteRoom) => {
+      if (remoteRoom && remoteRoom.roomCode === this.currentRoomCode) {
+        this.handleServerMessage({
+          type: 'ROOM_UPDATE',
+          room: remoteRoom,
+        });
+      }
+    });
+  }
+
+  private async backgroundSync() {
+    if (!this.currentRoomCode) return;
+
+    try {
+      const room = await firebaseService.fetchRoom(this.currentRoomCode);
+      if (room && room.roomCode === this.currentRoomCode) {
+        this.handleServerMessage({
+          type: 'ROOM_UPDATE',
+          room,
+        });
+      }
+    } catch (err) {
+      // background sync silent catch
+    }
+  }
+
   public async joinRoom(
     roomCode: string,
     playerName: string,
@@ -263,7 +316,7 @@ class SocketService {
       return;
     }
 
-    // If room is present in local memory (e.g. +1 test tab on same browser)
+    // Check if room is present in local memory
     if (localEngine.getRoom(code)) {
       this.isP2PHost = true;
       this.isP2PGuest = false;
@@ -278,7 +331,51 @@ class SocketService {
       return;
     }
 
-    // Cross-device WebRTC P2P Guest Connection
+    // Check if room exists in Firebase Firestore
+    try {
+      const firestoreRoom = await firebaseService.fetchRoom(code);
+      if (firestoreRoom) {
+        if (!firestoreRoom.players[this.playerId]) {
+          firestoreRoom.players[this.playerId] = {
+            id: this.playerId,
+            name: playerName || `Agent ${Object.keys(firestoreRoom.players).length + 1}`,
+            avatar: avatar || '🦊',
+            title: title || 'Rookie Tactician',
+            badgeFrame: badgeFrame || 'border-slate-700',
+            isHost: false,
+            isReady: false,
+            isConnected: true,
+            score: 0,
+            sessionToken: this.sessionToken,
+            lastActive: Date.now(),
+            hintsUsed: 0,
+          };
+          if (!firestoreRoom.playerOrder.includes(this.playerId)) {
+            firestoreRoom.playerOrder.push(this.playerId);
+          }
+        } else {
+          firestoreRoom.players[this.playerId].isConnected = true;
+          firestoreRoom.players[this.playerId].lastActive = Date.now();
+        }
+
+        await firebaseService.saveRoom(firestoreRoom);
+
+        this.handleServerMessage({
+          type: 'ROOM_JOINED',
+          roomCode: code,
+          playerId: this.playerId,
+          sessionToken: this.sessionToken,
+          walletBalance: this.walletBalance,
+          room: firestoreRoom,
+        });
+        this.handleServerMessage({ type: 'ROOM_UPDATE', room: firestoreRoom });
+        return;
+      }
+    } catch (err) {
+      console.warn('[Socket] Firestore room lookup notice:', err);
+    }
+
+    // Cross-device WebRTC P2P Guest Connection Fallback
     this.isP2PHost = false;
     this.isP2PGuest = true;
 
@@ -300,7 +397,7 @@ class SocketService {
     } catch (err: any) {
       this.handleServerMessage({
         type: 'ERROR',
-        message: `Could not connect to Room "${code}". Make sure the Host has created the room first and is active!`,
+        message: `Could not connect to Room "${code}". Make sure the Host has created the room first!`,
       });
     }
   }

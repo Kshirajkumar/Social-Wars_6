@@ -20,6 +20,10 @@ import {
   generateBluffCityGame,
   generateMurderMysteryGame,
   generateSecretAuctionGame,
+  generateDrawAndGuessGame,
+  DRAW_WORDS_DICTIONARY,
+  getRandomWordByDifficulty,
+  getDrawAndGuessRoundDuration,
 } from './src/services/procedural.ts';
 
 dotenv.config();
@@ -162,6 +166,13 @@ function sanitizeStateForPlayer(room: RoomState, playerId: string): RoomState {
         a.trueValue = undefined;
       }
     });
+  }
+
+  // Draw and Guess Sanitization: Hide secret word from non-drawers
+  if (copy.drawAndGuessState) {
+    if (playerId !== copy.drawAndGuessState.currentDrawerId && copy.drawAndGuessState.phase !== 'RESOLUTION') {
+      copy.drawAndGuessState.currentWord = '???';
+    }
   }
 
   return copy;
@@ -565,6 +576,12 @@ function handleClientMessage(ws: WebSocket, msg: any) {
           room.settings.difficulty,
           room.settings.level
         );
+      } else if (gameType === 'DRAW_AND_GUESS') {
+        room.drawAndGuessState = generateDrawAndGuessGame(
+          playerList,
+          room.settings.difficulty,
+          room.settings.level
+        );
       }
 
       room.eventLogs.unshift({
@@ -673,6 +690,8 @@ function handleClientMessage(ws: WebSocket, msg: any) {
         handleMurderMysteryAction(room, playerId, action, actionPayload);
       } else if (gameType === 'SECRET_AUCTION' && room.secretAuctionState) {
         handleSecretAuctionAction(room, playerId, action, actionPayload);
+      } else if (gameType === 'DRAW_AND_GUESS' && room.drawAndGuessState) {
+        handleDrawAndGuessAction(room, playerId, action, actionPayload);
       }
 
       broadcastRoom(roomId);
@@ -689,13 +708,60 @@ function handleClientMessage(ws: WebSocket, msg: any) {
       const player = room.players[playerId];
       if (!player) return;
 
+      let messageText = (payload.text || '').substring(0, 250);
+
+      // Check Draw & Guess correct word match
+      if (room.drawAndGuessState && room.drawAndGuessState.phase === 'DRAWING') {
+        const dg = room.drawAndGuessState;
+        const isDrawer = playerId === dg.currentDrawerId;
+        const alreadyGuessed = dg.correctGuessers.some((g) => g.playerId === playerId);
+
+        if (!isDrawer && !alreadyGuessed) {
+          const textClean = messageText.trim().toUpperCase();
+          if (textClean === dg.currentWord.trim().toUpperCase()) {
+            const rankNum = dg.correctGuessers.length + 1;
+            const points = rankNum === 1 ? 1000 : rankNum === 2 ? 700 : 500;
+
+            dg.correctGuessers.push({
+              playerId,
+              playerName: player.name,
+              rank: (rankNum <= 3 ? rankNum : 3) as 1 | 2 | 3,
+              pointsEarned: points,
+              timeTakenSeconds: Math.round((Date.now() - dg.serverStartTime) / 1000),
+            });
+
+            room.players[playerId].score += points;
+            if (room.players[dg.currentDrawerId]) {
+              room.players[dg.currentDrawerId].score += 300;
+            }
+
+            broadcastChatMessage(roomId, {
+              id: `chat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              senderId: 'SYSTEM',
+              senderName: '🎉 WINNER ANNOUNCEMENT',
+              senderAvatar: '🏆',
+              text: `🎉 ${player.name} GUESSED THE WORD CORRECTLY! (${rankNum === 1 ? '🥇 1st Place! +1,000 Pts' : rankNum === 2 ? '🥈 2nd Place! +700 Pts' : '🥉 3rd Place! +500 Pts'})`,
+              timestamp: Date.now(),
+              isSystem: true,
+            });
+
+            const nonDrawersCount = Object.keys(room.players).length - 1;
+            if (dg.correctGuessers.length >= Math.min(3, nonDrawersCount)) {
+              rotateDrawAndGuessRoundServer(room);
+            }
+            broadcastRoom(roomId);
+            return;
+          }
+        }
+      }
+
       const chatMsg: ChatMessage = {
         id: `chat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         senderId: playerId,
         senderName: player.name,
         senderAvatar: player.avatar,
         recipientId: payload.recipientId, // Whisper if provided
-        text: (payload.text || '').substring(0, 250), // rate limit length
+        text: messageText,
         timestamp: Date.now(),
       };
 
@@ -963,6 +1029,48 @@ function handleSecretAuctionAction(room: RoomState, playerId: string, action: st
   }
 }
 
+function handleDrawAndGuessAction(room: RoomState, playerId: string, action: string, data: any) {
+  if (!room.drawAndGuessState) return;
+  if (action === 'DRAW_STROKE') {
+    room.drawAndGuessState.drawingStrokes.push(data.stroke);
+  } else if (action === 'CLEAR_CANVAS') {
+    room.drawAndGuessState.drawingStrokes = [];
+  }
+}
+
+function rotateDrawAndGuessRoundServer(room: RoomState) {
+  if (!room.drawAndGuessState) return;
+  const dg = room.drawAndGuessState;
+  if (dg.round >= dg.maxRounds) {
+    finishGame(room, 'DRAW_AND_GUESS');
+    return;
+  }
+
+  dg.round += 1;
+  const currentIdx = room.playerOrder.indexOf(dg.currentDrawerId);
+  const nextDrawerId =
+    room.playerOrder[(currentIdx + 1) % room.playerOrder.length] || room.playerOrder[0];
+
+  const wordObj = getRandomWordByDifficulty(room.settings.difficulty, dg.usedWords);
+
+  dg.currentDrawerId = nextDrawerId;
+  dg.currentDrawerName = room.players[nextDrawerId]?.name || 'Artist';
+  dg.currentWord = wordObj.word.toUpperCase();
+  dg.category = wordObj.category;
+  dg.maskedWord = wordObj.word
+    .split('')
+    .map((c) => (/[A-Za-z]/.test(c) ? '_' : c))
+    .join(' ');
+  dg.drawingStrokes = [];
+  dg.correctGuessers = [];
+  dg.usedWords.push(wordObj.word);
+
+  const durationSec = getDrawAndGuessRoundDuration(room.settings.difficulty, room.settings.level);
+  const now = Date.now();
+  dg.serverStartTime = now;
+  dg.serverEndTime = now + durationSec * 1000;
+}
+
 /* ==================== FINISH GAME & SUMMARY CALCULATOR ==================== */
 
 function finishGame(room: RoomState, gameType: GameType) {
@@ -1143,6 +1251,12 @@ setInterval(() => {
             finishGame(room, 'SECRET_AUCTION');
           }
         }
+        broadcastRoom(roomId);
+      }
+
+      // Check Draw & Guess Round Transitions
+      if (room.drawAndGuessState && now >= room.drawAndGuessState.serverEndTime) {
+        rotateDrawAndGuessRoundServer(room);
         broadcastRoom(roomId);
       }
     }

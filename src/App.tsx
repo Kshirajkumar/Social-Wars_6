@@ -5,6 +5,7 @@ import { Lobby } from './components/Lobby';
 import { BluffCityGame } from './components/bluff-city/BluffCityGame';
 import { MurderMysteryGame } from './components/murder-mystery/MurderMysteryGame';
 import { SecretAuctionGame } from './components/secret-auction/SecretAuctionGame';
+import { DrawAndGuessGame } from './components/draw-and-guess/DrawAndGuessGame';
 import { PostGameScreen } from './components/common/PostGameScreen';
 import { HintModal } from './components/common/HintModal';
 import { ChatDrawer } from './components/common/ChatDrawer';
@@ -226,6 +227,16 @@ export default function App() {
             {room.settings.selectedGame === 'SECRET_AUCTION' && room.secretAuctionState && (
               <SecretAuctionGame
                 gameState={room.secretAuctionState}
+                players={room.players}
+                currentPlayerId={currentPlayerId}
+                isHost={isHost}
+                onOpenHintModal={() => setShowHintModal(true)}
+              />
+            )}
+
+            {room.settings.selectedGame === 'DRAW_AND_GUESS' && room.drawAndGuessState && (
+              <DrawAndGuessGame
+                gameState={room.drawAndGuessState}
                 players={room.players}
                 currentPlayerId={currentPlayerId}
                 isHost={isHost}

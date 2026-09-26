@@ -346,6 +346,11 @@ export const Lobby: React.FC<LobbyProps> = ({
                     name: '🃏 Secret Auction',
                     subtitle: 'Valuations, Debt & Market Events',
                   },
+                  {
+                    id: 'DRAW_AND_GUESS',
+                    name: '🎨 Live Draw & Guess',
+                    subtitle: 'Live Drawing, Masked Hints & Chat Guessing',
+                  },
                 ].map((game) => (
                   <button
                     key={game.id}
@@ -362,6 +367,68 @@ export const Lobby: React.FC<LobbyProps> = ({
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Selected Game Field Guide Card */}
+            <div className="bg-slate-950 border border-slate-800 p-3.5 rounded-2xl text-xs space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-amber-400 uppercase tracking-wider text-[10px]">
+                  💡 Quick Game Guide
+                </span>
+                <button
+                  onClick={() => {
+                    sounds.playClick();
+                    onOpenRules();
+                  }}
+                  className="text-[10px] text-cyan-400 hover:text-white font-bold"
+                >
+                  Full Rules Guide →
+                </button>
+              </div>
+
+              {room.settings.selectedGame === 'BLUFF_CITY' && (
+                <div className="space-y-1 text-slate-300">
+                  <p className="font-semibold text-white">
+                    🎯 Win Goal: Fulfill your secret role objective or unmask the Criminal.
+                  </p>
+                  <p className="text-[11px]">
+                    1. Visit city locations to gather influence/coins. 2. Pass decrees & negotiate. 3. Vote & accuse!
+                  </p>
+                </div>
+              )}
+
+              {room.settings.selectedGame === 'MURDER_MYSTERY' && (
+                <div className="space-y-1 text-slate-300">
+                  <p className="font-semibold text-white">
+                    🎯 Win Goal: Find physical clues in rooms to unmask the Manor Killer!
+                  </p>
+                  <p className="text-[11px]">
+                    1. Move across 9 mansion rooms. 2. Search for forensics. 3. Submit formal accusation or escape!
+                  </p>
+                </div>
+              )}
+
+              {room.settings.selectedGame === 'SECRET_AUCTION' && (
+                <div className="space-y-1 text-slate-300">
+                  <p className="font-semibold text-white">
+                    🎯 Win Goal: Outbid rivals for high-yield assets to maximize Net Worth.
+                  </p>
+                  <p className="text-[11px]">
+                    1. Buy research to reveal true asset values. 2. Place high bids before timer expires. 3. Manage loans!
+                  </p>
+                </div>
+              )}
+
+              {room.settings.selectedGame === 'DRAW_AND_GUESS' && (
+                <div className="space-y-1 text-slate-300">
+                  <p className="font-semibold text-white">
+                    🎯 Win Goal: Score highest points across 10 rounds of live drawing and chat guessing.
+                  </p>
+                  <p className="text-[11px]">
+                    1. Artist draws live on canvas. 2. Other players guess word in chat. 3. Top 3 guessers win +1000/+700/+500 Pts!
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Global Difficulty */}

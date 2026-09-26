@@ -19,6 +19,7 @@ import {
 import { MurderMysteryGameState, RoomPlayer, EvidenceItem } from '../../types/game';
 import { socket } from '../../services/socket';
 import { sounds } from '../../services/sound';
+import { GameStepGuide } from '../common/GameStepGuide';
 
 interface MurderMysteryGameProps {
   gameState: MurderMysteryGameState;
@@ -108,6 +109,14 @@ export const MurderMysteryGame: React.FC<MurderMysteryGameProps> = ({
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-4 pb-16">
+      {/* Interactive Step Guide & Field Manual */}
+      <GameStepGuide
+        gameType="MURDER_MYSTERY"
+        phase={gameState.phase}
+        role={myState?.role}
+        myLocationOrRoom={myState?.currentRoom}
+      />
+
       {/* Header Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
         <div>

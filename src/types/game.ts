@@ -1,4 +1,4 @@
-export type GameType = 'BLUFF_CITY' | 'MURDER_MYSTERY' | 'SECRET_AUCTION';
+export type GameType = 'BLUFF_CITY' | 'MURDER_MYSTERY' | 'SECRET_AUCTION' | 'DRAW_AND_GUESS';
 
 export type GlobalDifficulty = 'BEGINNER' | 'EASY' | 'INTERMEDIATE' | 'HARD' | 'MASTER';
 
@@ -291,6 +291,46 @@ export interface SecretAuctionGameState {
   availableAssets: AuctionAsset[];
 }
 
+/* ==================== DRAW AND GUESS TYPES ==================== */
+export interface DrawingPoint {
+  x: number; // 0 to 1 normalized canvas coordinate
+  y: number; // 0 to 1 normalized canvas coordinate
+}
+
+export interface DrawingStroke {
+  id: string;
+  points: DrawingPoint[];
+  color: string;
+  brushSize: number;
+  isEraser?: boolean;
+}
+
+export interface CorrectGuesser {
+  playerId: string;
+  playerName: string;
+  rank: 1 | 2 | 3;
+  pointsEarned: number;
+  timeTakenSeconds: number;
+}
+
+export interface DrawAndGuessGameState {
+  round: number;
+  maxRounds: number;
+  phase: 'DRAWING' | 'ROUND_SUMMARY' | 'RESOLUTION';
+  serverStartTime: number;
+  serverEndTime: number;
+  currentDrawerId: string;
+  currentDrawerName: string;
+  currentWord: string; // Secret word for drawer
+  category: string;
+  maskedWord: string; // e.g. "_ _ _ _ _ _"
+  letterHintsRevealed: number;
+  drawingStrokes: DrawingStroke[];
+  correctGuessers: CorrectGuesser[];
+  playerScores: Record<string, number>;
+  usedWords: string[];
+}
+
 /* ==================== GENERAL GAME CONTAINER ==================== */
 export interface RoomState {
   roomCode: string;
@@ -306,6 +346,7 @@ export interface RoomState {
   bluffCityState?: BluffCityGameState;
   murderMysteryState?: MurderMysteryGameState;
   secretAuctionState?: SecretAuctionGameState;
+  drawAndGuessState?: DrawAndGuessGameState;
   postGameSummary?: PostGameSummary;
 }
 

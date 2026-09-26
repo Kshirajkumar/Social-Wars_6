@@ -19,6 +19,7 @@ import {
 import { SecretAuctionGameState, RoomPlayer, AuctionAsset } from '../../types/game';
 import { socket } from '../../services/socket';
 import { sounds } from '../../services/sound';
+import { GameStepGuide } from '../common/GameStepGuide';
 
 interface SecretAuctionGameProps {
   gameState: SecretAuctionGameState;
@@ -95,6 +96,12 @@ export const SecretAuctionGame: React.FC<SecretAuctionGameProps> = ({
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-4 pb-16">
+      {/* Interactive Step Guide & Field Manual */}
+      <GameStepGuide
+        gameType="SECRET_AUCTION"
+        phase={gameState.phase}
+      />
+
       {/* Top Status Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
         <div>

@@ -1,0 +1,31 @@
+{
+  "entities": {
+    "rooms": {
+      "title": "Game Room",
+      "description": "Live game room state synchronized across all players",
+      "properties": {
+        "roomCode": { "type": "string" },
+        "hostId": { "type": "string" },
+        "phase": { "type": "string" },
+        "currentGame": { "type": "string" },
+        "players": { "type": "object" },
+        "settings": { "type": "object" },
+        "chats": { "type": "array" },
+        "eventLogs": { "type": "array" },
+        "lastUpdated": { "type": "number" }
+      },
+      "required": ["roomCode", "hostId"]
+    },
+    "users": {
+      "title": "User Profile",
+      "description": "User profile and persistent wallet balance",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "walletBalance": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["uid"]
+    }
+  }
+}

@@ -19,6 +19,7 @@ import {
 import { BluffCityGameState, RoomPlayer, BluffLocationId } from '../../types/game';
 import { socket } from '../../services/socket';
 import { sounds } from '../../services/sound';
+import { GameStepGuide } from '../common/GameStepGuide';
 
 interface BluffCityGameProps {
   gameState: BluffCityGameState;
@@ -141,6 +142,14 @@ export const BluffCityGame: React.FC<BluffCityGameProps> = ({
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-4 pb-16">
+      {/* Interactive Step Guide & Field Manual */}
+      <GameStepGuide
+        gameType="BLUFF_CITY"
+        phase={gameState.phase}
+        role={myState?.role}
+        myLocationOrRoom={myState?.currentLocation}
+      />
+
       {/* Top Status Bar: Round, Phase, Server Countdown & City Stability */}
       <div className="bg-slate-900 border border-slate-800 rounded-3xl p-4 sm:p-5 shadow-xl grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
         {/* Phase Info */}

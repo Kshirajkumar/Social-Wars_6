@@ -44,11 +44,12 @@ export const RulesGuideModal: React.FC<RulesGuideModalProps> = ({
         </div>
 
         {/* Game Switcher Tabs */}
-        <div className="px-6 pt-4 pb-2 border-b border-slate-800 flex items-center gap-2 text-xs">
+        <div className="px-6 pt-4 pb-2 border-b border-slate-800 flex items-center gap-2 text-xs overflow-x-auto">
           {[
             { id: 'BLUFF_CITY', label: '🕵️ Bluff City' },
-            { id: 'MURDER_MYSTERY', label: '🔪 Murder Mystery Room' },
+            { id: 'MURDER_MYSTERY', label: '🔪 Murder Mystery' },
             { id: 'SECRET_AUCTION', label: '🃏 Secret Auction' },
+            { id: 'DRAW_AND_GUESS', label: '🎨 Live Draw & Guess' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -56,7 +57,7 @@ export const RulesGuideModal: React.FC<RulesGuideModalProps> = ({
                 sounds.playClick();
                 setSelectedGame(tab.id as GameType);
               }}
-              className={`px-3 py-1.5 rounded-xl font-bold transition ${
+              className={`px-3 py-1.5 rounded-xl font-bold transition whitespace-nowrap ${
                 selectedGame === tab.id
                   ? 'bg-cyan-600 text-white shadow-md shadow-cyan-600/30'
                   : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
@@ -206,6 +207,62 @@ export const RulesGuideModal: React.FC<RulesGuideModalProps> = ({
                     </span>
                     <div>
                       <strong className="text-white">Debt & Due Diligence:</strong> Leverage bank loans or pay for private research. The player with the highest final net worth wins!
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {selectedGame === 'DRAW_AND_GUESS' && (
+            <div className="space-y-4">
+              <div className="bg-slate-950/70 border border-slate-800 p-4 rounded-2xl">
+                <span className="text-[10px] uppercase font-bold text-purple-400 tracking-wider">
+                  Live Drawing & Fast Guessing
+                </span>
+                <h4 className="text-base font-extrabold text-white mt-1">
+                  "Draw fast, guess faster!"
+                </h4>
+                <p className="text-xs text-slate-300 mt-2 leading-relaxed">
+                  A random player is chosen as the Artist each round to draw a secret word live on canvas. All other players see masked letter hints and type guesses in Chat!
+                </p>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <h5 className="font-bold text-slate-200 uppercase tracking-wider text-[11px]">
+                  Match Rules (10 Rounds):
+                </h5>
+                <div className="grid grid-cols-1 gap-2.5">
+                  <div className="bg-slate-800/40 border border-slate-800 p-3 rounded-xl flex items-start gap-2.5">
+                    <span className="font-mono font-bold text-purple-400 bg-purple-950 px-1.5 py-0.5 rounded">
+                      1
+                    </span>
+                    <div>
+                      <strong className="text-white">Live Canvas Drawing:</strong> The Artist uses colors, brush sizes, and erasers to draw the secret word on a big live board.
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/40 border border-slate-800 p-3 rounded-xl flex items-start gap-2.5">
+                    <span className="font-mono font-bold text-purple-400 bg-purple-950 px-1.5 py-0.5 rounded">
+                      2
+                    </span>
+                    <div>
+                      <strong className="text-white">Top 3 Guesser Points:</strong> 1st correct guesser gets <strong>+1,000 Pts</strong>, 2nd gets <strong>+700 Pts</strong>, 3rd gets <strong>+500 Pts</strong>!
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/40 border border-slate-800 p-3 rounded-xl flex items-start gap-2.5">
+                    <span className="font-mono font-bold text-purple-400 bg-purple-950 px-1.5 py-0.5 rounded">
+                      3
+                    </span>
+                    <div>
+                      <strong className="text-white">Artist Rewards:</strong> The Artist earns +300 Pts for every player who successfully guesses their drawing.
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/40 border border-slate-800 p-3 rounded-xl flex items-start gap-2.5">
+                    <span className="font-mono font-bold text-purple-400 bg-purple-950 px-1.5 py-0.5 rounded">
+                      4
+                    </span>
+                    <div>
+                      <strong className="text-white">Dynamic 1 to 7 Minute Timers:</strong> Drawing timers dynamically adjust from 60 seconds (Beginner) up to 420 seconds (7 minutes on Master levels for complex phrases and masterpieces).
                     </div>
                   </div>
                 </div>

@@ -11,7 +11,8 @@ import {
   SecretAuctionGameState,
   AuctionAsset,
   AuctionPlayerState,
-  RoomPlayer
+  RoomPlayer,
+  DrawAndGuessGameState
 } from '../types/game';
 
 /* ==================== BLUFF CITY GENERATOR ==================== */
@@ -538,5 +539,160 @@ export function generateSecretAuctionGame(
     currentMarketEvent: MARKET_EVENTS_POOL[0],
     playerStates,
     availableAssets: availableAssets.slice(1),
+  };
+}
+
+/* ==================== DRAW & GUESS GENERATOR ==================== */
+
+export const DRAW_WORDS_BY_DIFFICULTY: Record<GlobalDifficulty, { word: string; category: string }[]> = {
+  BEGINNER: [
+    { word: 'PIZZA', category: 'Food' },
+    { word: 'BURGER', category: 'Food' },
+    { word: 'DONUT', category: 'Food' },
+    { word: 'CAT', category: 'Animals' },
+    { word: 'DOG', category: 'Animals' },
+    { word: 'SNAKE', category: 'Animals' },
+    { word: 'SUN', category: 'Nature' },
+    { word: 'HOUSE', category: 'Objects' },
+    { word: 'CAR', category: 'Vehicles' },
+    { word: 'ROBOT', category: 'Tech' },
+    { word: 'APPLE', category: 'Food' },
+    { word: 'STAR', category: 'Space' },
+    { word: 'FISH', category: 'Animals' },
+    { word: 'KEY', category: 'Objects' },
+  ],
+  EASY: [
+    { word: 'PENGUIN', category: 'Animals' },
+    { word: 'GIRAFFE', category: 'Animals' },
+    { word: 'GUITAR', category: 'Music' },
+    { word: 'BICYCLE', category: 'Vehicles' },
+    { word: 'ICE CREAM', category: 'Food' },
+    { word: 'TACO', category: 'Food' },
+    { word: 'CUPCAKE', category: 'Food' },
+    { word: 'LIGHTBULB', category: 'Objects' },
+    { word: 'UMBRELLA', category: 'Objects' },
+    { word: 'PYRAMID', category: 'Landmarks' },
+    { word: 'HAMSTER', category: 'Animals' },
+    { word: 'ROCKET', category: 'Space' },
+  ],
+  INTERMEDIATE: [
+    { word: 'ASTRONAUT', category: 'Space' },
+    { word: 'TELESCOPE', category: 'Science' },
+    { word: 'SUBMARINE', category: 'Vehicles' },
+    { word: 'HEADPHONES', category: 'Tech' },
+    { word: 'WATERMELON', category: 'Food' },
+    { word: 'FLAMINGO', category: 'Animals' },
+    { word: 'EIFFEL TOWER', category: 'Landmarks' },
+    { word: 'SUPERMAN', category: 'Superheroes' },
+    { word: 'VOLCANO', category: 'Nature' },
+    { word: 'HELICOPTER', category: 'Vehicles' },
+    { word: 'TREASURE MAP', category: 'Adventure' },
+  ],
+  HARD: [
+    { word: 'STATUE OF LIBERTY', category: 'Landmarks' },
+    { word: 'PIRATE SHIP', category: 'Fun' },
+    { word: 'TREASURE CHEST', category: 'Fun' },
+    { word: 'SPIDERMAN', category: 'Superheroes' },
+    { word: 'ROLLER COASTER', category: 'Places' },
+    { word: 'HOT AIR BALLOON', category: 'Vehicles' },
+    { word: 'TIME MACHINE', category: 'Sci-Fi' },
+    { word: 'LOWERING DRAWBRIDGE', category: 'Architecture' },
+    { word: 'ANCIENT EGYPTIAN PHARAOH', category: 'History' },
+  ],
+  MASTER: [
+    { word: 'CYBERPUNK CITY SKYLINE', category: 'Sci-Fi' },
+    { word: 'DRAGON IN A CASTLE TOWER', category: 'Fantasy' },
+    { word: 'SPACE SHUTTLE LAUNCH PAD', category: 'Space' },
+    { word: 'HAUNTED MANSION WITH GHOSTS', category: 'Spooky' },
+    { word: 'UNDERWATER CORAL REEF KINGDOM', category: 'Nature' },
+    { word: 'MEDIEVAL JOUSTING TOURNAMENT', category: 'History' },
+    { word: 'VALENTINE CUPID WITH GOLDEN BOW', category: 'Mythology' },
+  ],
+};
+
+export const DRAW_WORDS_DICTIONARY = Object.values(DRAW_WORDS_BY_DIFFICULTY).flat();
+
+/**
+ * Calculates dynamic drawing round timer (in seconds) based on difficulty & level.
+ * Beginner: ~60s
+ * Easy: ~75s
+ * Intermediate: ~90s
+ * Hard: ~120s–180s
+ * Master: ~300s–420s (Up to 7 Minutes!)
+ */
+export function getDrawAndGuessRoundDuration(
+  difficulty: GlobalDifficulty,
+  level: number
+): number {
+  const baseSeconds: Record<GlobalDifficulty, number> = {
+    BEGINNER: 60,
+    EASY: 75,
+    INTERMEDIATE: 90,
+    HARD: 150,
+    MASTER: 300,
+  };
+
+  const levelBonusSeconds = (level - 1) * 6; // Level 20 adds +114 seconds
+  const total = (baseSeconds[difficulty] || 60) + levelBonusSeconds;
+  return Math.min(420, total); // Cap at 420s (7 minutes max per round)
+}
+
+export function getRandomWordByDifficulty(
+  difficulty: GlobalDifficulty,
+  usedWords: string[] = []
+): { word: string; category: string } {
+  const pool = DRAW_WORDS_BY_DIFFICULTY[difficulty] || DRAW_WORDS_BY_DIFFICULTY.BEGINNER;
+  const available = pool.filter((w) => !usedWords.includes(w.word));
+
+  if (available.length > 0) {
+    return available[Math.floor(Math.random() * available.length)];
+  }
+  // Fallback to general list if all spent
+  const generalAvailable = DRAW_WORDS_DICTIONARY.filter((w) => !usedWords.includes(w.word));
+  if (generalAvailable.length > 0) {
+    return generalAvailable[Math.floor(Math.random() * generalAvailable.length)];
+  }
+  return DRAW_WORDS_DICTIONARY[Math.floor(Math.random() * DRAW_WORDS_DICTIONARY.length)];
+}
+
+export function generateDrawAndGuessGame(
+  players: RoomPlayer[],
+  difficulty: GlobalDifficulty,
+  level: number
+): DrawAndGuessGameState {
+  const drawerIndex = Math.floor(Math.random() * players.length);
+  const drawer = players[drawerIndex] || players[0];
+  const wordObj = getRandomWordByDifficulty(difficulty);
+
+  // Mask word: replace A-Z letters with _
+  const maskedWord = wordObj.word
+    .split('')
+    .map((char) => (/[A-Za-z]/.test(char) ? '_' : char))
+    .join(' ');
+
+  const scores: Record<string, number> = {};
+  players.forEach((p) => {
+    scores[p.id] = 0;
+  });
+
+  const durationSec = getDrawAndGuessRoundDuration(difficulty, level);
+  const now = Date.now();
+
+  return {
+    round: 1,
+    maxRounds: 10, // 10 rounds match
+    phase: 'DRAWING',
+    serverStartTime: now,
+    serverEndTime: now + durationSec * 1000,
+    currentDrawerId: drawer.id,
+    currentDrawerName: drawer.name,
+    currentWord: wordObj.word.toUpperCase(),
+    category: wordObj.category,
+    maskedWord,
+    letterHintsRevealed: 0,
+    drawingStrokes: [],
+    correctGuessers: [],
+    playerScores: scores,
+    usedWords: [wordObj.word],
   };
 }

@@ -11,8 +11,13 @@ import {
   generateBluffCityGame,
   generateMurderMysteryGame,
   generateSecretAuctionGame,
+  generateDrawAndGuessGame,
+  DRAW_WORDS_DICTIONARY,
+  getRandomWordByDifficulty,
+  getDrawAndGuessRoundDuration,
 } from './procedural';
 import { p2pMesh } from './p2pMesh';
+import { firebaseService } from './firebaseService';
 
 type EngineBroadcast = (msg: any) => void;
 
@@ -79,6 +84,10 @@ class LocalRoomEngine {
   private broadcast(msg: any) {
     const targetCode = (msg.roomCode || msg.room?.roomCode || this.activeRoomCode || '').toUpperCase().trim();
     const taggedMsg = targetCode ? { ...msg, roomCode: targetCode } : msg;
+
+    if (msg.room) {
+      firebaseService.saveRoom(msg.room);
+    }
 
     if (this.channel) {
       this.channel.postMessage(taggedMsg);
@@ -387,6 +396,12 @@ class LocalRoomEngine {
             room.settings.difficulty,
             room.settings.level
           );
+        } else if (gameType === 'DRAW_AND_GUESS') {
+          room.drawAndGuessState = generateDrawAndGuessGame(
+            Object.values(room.players),
+            room.settings.difficulty,
+            room.settings.level
+          );
         }
 
         this.broadcast({ type: 'ROOM_UPDATE', room, event: { type: 'MATCH_STARTED', gameType } });
@@ -503,6 +518,12 @@ class LocalRoomEngine {
               pState.debt = Math.max(0, pState.debt - 25000);
             }
           }
+        } else if (gameType === 'DRAW_AND_GUESS' && room.drawAndGuessState) {
+          if (action === 'DRAW_STROKE') {
+            room.drawAndGuessState.drawingStrokes.push(actionPayload.stroke);
+          } else if (action === 'CLEAR_CANVAS') {
+            room.drawAndGuessState.drawingStrokes = [];
+          }
         }
 
         this.broadcast({ type: 'ROOM_UPDATE', room });
@@ -513,13 +534,64 @@ class LocalRoomEngine {
         const room = this.findRoomOfPlayer(playerId);
         if (!room || !room.players[playerId]) return;
 
+        let messageText = payload.text || '';
+
+        // Draw and Guess Secret Word Guess Checking
+        if (room.drawAndGuessState && room.drawAndGuessState.phase === 'DRAWING') {
+          const dg = room.drawAndGuessState;
+          const isDrawer = playerId === dg.currentDrawerId;
+          const alreadyGuessed = dg.correctGuessers.some((g) => g.playerId === playerId);
+
+          if (!isDrawer && !alreadyGuessed) {
+            const textClean = messageText.trim().toUpperCase();
+            if (textClean === dg.currentWord.trim().toUpperCase()) {
+              const rankNum = dg.correctGuessers.length + 1;
+              const points = rankNum === 1 ? 1000 : rankNum === 2 ? 700 : 500;
+
+              dg.correctGuessers.push({
+                playerId,
+                playerName: room.players[playerId]?.name || 'Player',
+                rank: (rankNum <= 3 ? rankNum : 3) as 1 | 2 | 3,
+                pointsEarned: points,
+                timeTakenSeconds: Math.round((Date.now() - dg.serverStartTime) / 1000),
+              });
+
+              room.players[playerId].score += points;
+              if (room.players[dg.currentDrawerId]) {
+                room.players[dg.currentDrawerId].score += 300;
+              }
+
+              // Broadcast Winner System Message
+              this.broadcast({
+                type: 'CHAT_MESSAGE',
+                message: {
+                  id: `chat_${Date.now()}_${Math.random()}`,
+                  senderId: 'SYSTEM',
+                  senderName: '🎉 WINNER ANNOUNCEMENT',
+                  senderAvatar: '🏆',
+                  text: `🎉 ${room.players[playerId]?.name} GUESSED THE WORD CORRECTLY! (${rankNum === 1 ? '🥇 1st Place! +1,000 Pts' : rankNum === 2 ? '🥈 2nd Place! +700 Pts' : '🥉 3rd Place! +500 Pts'})`,
+                  timestamp: Date.now(),
+                  isSystem: true,
+                },
+              });
+
+              const nonDrawersCount = Object.keys(room.players).length - 1;
+              if (dg.correctGuessers.length >= Math.min(3, nonDrawersCount)) {
+                this.rotateDrawAndGuessRound(room);
+              }
+              this.broadcast({ type: 'ROOM_UPDATE', room });
+              return;
+            }
+          }
+        }
+
         const chatMsg: ChatMessage = {
           id: `chat_${Date.now()}_${Math.random()}`,
           senderId: playerId,
           senderName: room.players[playerId].name,
           senderAvatar: room.players[playerId].avatar,
           recipientId: payload.recipientId,
-          text: payload.text,
+          text: messageText,
           timestamp: Date.now(),
         };
 
@@ -549,6 +621,7 @@ class LocalRoomEngine {
           room.bluffCityState = undefined;
           room.murderMysteryState = undefined;
           room.secretAuctionState = undefined;
+          room.drawAndGuessState = undefined;
           room.postGameSummary = undefined;
           Object.values(room.players).forEach((p) => {
             p.isReady = false;
@@ -560,6 +633,39 @@ class LocalRoomEngine {
         break;
       }
     }
+  }
+
+  private rotateDrawAndGuessRound(room: RoomState) {
+    if (!room.drawAndGuessState) return;
+    const dg = room.drawAndGuessState;
+    if (dg.round >= dg.maxRounds) {
+      this.finishMatch(room, 'DRAW_AND_GUESS');
+      return;
+    }
+
+    dg.round += 1;
+    const currentIdx = room.playerOrder.indexOf(dg.currentDrawerId);
+    const nextDrawerId =
+      room.playerOrder[(currentIdx + 1) % room.playerOrder.length] || room.playerOrder[0];
+
+    const wordObj = getRandomWordByDifficulty(room.settings.difficulty, dg.usedWords);
+
+    dg.currentDrawerId = nextDrawerId;
+    dg.currentDrawerName = room.players[nextDrawerId]?.name || 'Artist';
+    dg.currentWord = wordObj.word.toUpperCase();
+    dg.category = wordObj.category;
+    dg.maskedWord = wordObj.word
+      .split('')
+      .map((c) => (/[A-Za-z]/.test(c) ? '_' : c))
+      .join(' ');
+    dg.drawingStrokes = [];
+    dg.correctGuessers = [];
+    dg.usedWords.push(wordObj.word);
+
+    const durationSec = getDrawAndGuessRoundDuration(room.settings.difficulty, room.settings.level);
+    const now = Date.now();
+    dg.serverStartTime = now;
+    dg.serverEndTime = now + durationSec * 1000;
   }
 
   private findRoomOfPlayer(playerId: string): RoomState | undefined {
@@ -612,6 +718,11 @@ class LocalRoomEngine {
         } else if (room.secretAuctionState.phase === 'MARKET_EVENT') {
           this.finishMatch(room, 'SECRET_AUCTION');
         }
+        this.broadcast({ type: 'ROOM_UPDATE', room });
+      }
+
+      if (room.drawAndGuessState && now >= room.drawAndGuessState.serverEndTime) {
+        this.rotateDrawAndGuessRound(room);
         this.broadcast({ type: 'ROOM_UPDATE', room });
       }
     }
