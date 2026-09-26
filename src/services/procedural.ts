@@ -660,8 +660,13 @@ export function generateDrawAndGuessGame(
   difficulty: GlobalDifficulty,
   level: number
 ): DrawAndGuessGameState {
-  const drawerIndex = Math.floor(Math.random() * players.length);
-  const drawer = players[drawerIndex] || players[0];
+  // Only select actual real human players for drawing turns
+  const realPlayers = players.filter(
+    (p) => p && !p.id.toLowerCase().includes('bot') && !p.id.toLowerCase().includes('ai')
+  );
+  const activePool = realPlayers.length > 0 ? realPlayers : players;
+  const drawerIndex = Math.floor(Math.random() * activePool.length);
+  const drawer = activePool[drawerIndex] || activePool[0];
   const wordObj = getRandomWordByDifficulty(difficulty);
 
   // Mask word: replace A-Z letters with _

@@ -1047,9 +1047,20 @@ function rotateDrawAndGuessRoundServer(room: RoomState) {
   }
 
   dg.round += 1;
-  const currentIdx = room.playerOrder.indexOf(dg.currentDrawerId);
-  const nextDrawerId =
-    room.playerOrder[(currentIdx + 1) % room.playerOrder.length] || room.playerOrder[0];
+  const activeHumanPlayerIds = (
+    room.playerOrder && room.playerOrder.length > 0
+      ? room.playerOrder
+      : Object.keys(room.players)
+  ).filter(
+    (id) =>
+      room.players[id] &&
+      !id.toLowerCase().includes('bot') &&
+      !id.toLowerCase().includes('ai')
+  );
+
+  const humanList = activeHumanPlayerIds.length > 0 ? activeHumanPlayerIds : Object.keys(room.players);
+  const currentIdx = humanList.indexOf(dg.currentDrawerId);
+  const nextDrawerId = humanList[(currentIdx + 1) % humanList.length] || humanList[0];
 
   const wordObj = getRandomWordByDifficulty(room.settings.difficulty, dg.usedWords);
 
