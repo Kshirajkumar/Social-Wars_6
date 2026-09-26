@@ -1,4 +1,5 @@
 import { RoomState, ChatMessage } from '../types/game';
+import { localEngine } from './localEngine';
 
 type MessageHandler = (data: any) => void;
 
@@ -7,6 +8,7 @@ class SocketService {
   private listeners: Map<string, Set<MessageHandler>> = new Map();
   private reconnectTimer: any = null;
   private isConnecting: boolean = false;
+  public isFallbackMode: boolean = false;
 
   public playerId: string = '';
   public sessionToken: string = '';
@@ -14,9 +16,17 @@ class SocketService {
   public walletBalance: number = 10000;
 
   constructor() {
-    this.playerId = sessionStorage.getItem('sw_player_id') || '';
-    this.sessionToken = sessionStorage.getItem('sw_session_token') || '';
+    this.playerId = sessionStorage.getItem('sw_player_id') || `p_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    this.sessionToken = sessionStorage.getItem('sw_session_token') || `token_${Math.random().toString(36).substring(2, 10)}`;
     this.currentRoomCode = sessionStorage.getItem('sw_room_code') || '';
+
+    sessionStorage.setItem('sw_player_id', this.playerId);
+    sessionStorage.setItem('sw_session_token', this.sessionToken);
+
+    // Bind local engine broadcasts to this service
+    localEngine.setBroadcast((msg: any) => {
+      this.handleServerMessage(msg);
+    });
   }
 
   public connect(): Promise<void> {
@@ -25,48 +35,77 @@ class SocketService {
     }
 
     this.isConnecting = true;
+
     return new Promise((resolve) => {
+      // Optional explicit external WebSocket URL via environment variable
+      const customWsUrl = (import.meta as any).env?.VITE_WS_URL;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
-      const wsUrl = `${protocol}//${host}`;
+      const wsUrl = customWsUrl || `${protocol}//${host}`;
 
-      this.ws = new WebSocket(wsUrl);
-
-      this.ws.onopen = () => {
+      // If on Vercel and no custom WS URL provided, immediately activate resilient local engine
+      if (!customWsUrl && window.location.hostname.includes('vercel.app')) {
+        this.isFallbackMode = true;
         this.isConnecting = false;
-        console.log('[Socket] Connected to real-time game server');
-        // Auto-reconnect to room if token exists
-        if (this.currentRoomCode && this.sessionToken) {
-          this.reconnect();
-        }
         resolve();
-      };
+        return;
+      }
 
-      this.ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          this.handleServerMessage(msg);
-        } catch (err) {
-          console.error('[Socket] Failed to parse message', err);
-        }
-      };
+      try {
+        this.ws = new WebSocket(wsUrl);
 
-      this.ws.onclose = () => {
+        // Safety timeout: if WebSocket doesn't connect in 1.2s, enable fallback engine so buttons never stall
+        const timeout = setTimeout(() => {
+          if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.isFallbackMode = true;
+            this.isConnecting = false;
+            resolve();
+          }
+        }, 1200);
+
+        this.ws.onopen = () => {
+          clearTimeout(timeout);
+          this.isConnecting = false;
+          this.isFallbackMode = false;
+          console.log('[Socket] Connected to real-time server');
+          if (this.currentRoomCode && this.sessionToken) {
+            this.reconnect();
+          }
+          resolve();
+        };
+
+        this.ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            this.handleServerMessage(msg);
+          } catch (err) {
+            console.error('[Socket] Failed to parse message', err);
+          }
+        };
+
+        this.ws.onclose = () => {
+          clearTimeout(timeout);
+          this.isConnecting = false;
+          // Switch seamlessly to fallback mode on connection drop
+          this.isFallbackMode = true;
+          resolve();
+        };
+
+        this.ws.onerror = () => {
+          clearTimeout(timeout);
+          this.isConnecting = false;
+          this.isFallbackMode = true;
+          resolve();
+        };
+      } catch (err) {
         this.isConnecting = false;
-        console.log('[Socket] Disconnected. Retrying in 2s...');
-        clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = setTimeout(() => {
-          this.connect();
-        }, 2000);
-      };
-
-      this.ws.onerror = (err) => {
-        console.warn('[Socket] Connection error:', err);
-      };
+        this.isFallbackMode = true;
+        resolve();
+      }
     });
   }
 
-  private handleServerMessage(msg: any) {
+  public handleServerMessage(msg: any) {
     const { type } = msg;
 
     if (type === 'ROOM_JOINED') {
@@ -106,13 +145,14 @@ class SocketService {
   }
 
   public send(type: string, payload: any = {}) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      this.connect().then(() => {
-        this.ws?.send(JSON.stringify({ type, payload }));
-      });
+    // If WebSocket is open and active, send to real-time server
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && !this.isFallbackMode) {
+      this.ws.send(JSON.stringify({ type, payload }));
       return;
     }
-    this.ws.send(JSON.stringify({ type, payload }));
+
+    // Otherwise, immediately execute in client authoritative engine with 0ms latency!
+    localEngine.handleAction(this.playerId, type, payload);
   }
 
   public createRoom(playerName: string, avatar: string, title?: string, badgeFrame?: string) {
@@ -149,6 +189,10 @@ class SocketService {
 
   public setReady() {
     this.send('SET_READY');
+  }
+
+  public addBotPlayer() {
+    this.send('HOST_ADD_BOT');
   }
 
   public updateSettings(settings: any) {

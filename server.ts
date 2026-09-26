@@ -20,7 +20,7 @@ import {
   generateBluffCityGame,
   generateMurderMysteryGame,
   generateSecretAuctionGame,
-} from './server/procedural.ts';
+} from './src/services/procedural.ts';
 
 dotenv.config();
 
@@ -455,6 +455,41 @@ function handleClientMessage(ws: WebSocket, msg: any) {
       break;
     }
 
+    case 'HOST_ADD_BOT': {
+      const playerInfo = socketToPlayer.get(ws);
+      if (!playerInfo) return;
+      const { roomId, playerId } = playerInfo;
+      const room = rooms.get(roomId);
+      if (!room || room.hostId !== playerId) return;
+
+      const currentCount = Object.keys(room.players).length;
+      if (currentCount >= 5) return;
+
+      const botNames = ['Vikram (AI)', 'Arjun (AI)', 'Sai (AI)', 'Ananya (AI)', 'Rohan (AI)'];
+      const botAvatars = ['🤖', '🦊', '🦁', '🦉', '🥷'];
+      const botId = `bot_${Date.now()}_${currentCount}`;
+
+      const botPlayer: RoomPlayer = {
+        id: botId,
+        name: botNames[currentCount % botNames.length],
+        avatar: botAvatars[currentCount % botAvatars.length],
+        title: 'Tactical Bot',
+        badgeFrame: 'border-cyan-500/50',
+        isHost: false,
+        isReady: true,
+        isConnected: true,
+        score: 0,
+        sessionToken: `token_${botId}`,
+        lastActive: Date.now(),
+        hintsUsed: 0,
+      };
+
+      room.players[botId] = botPlayer;
+      room.playerOrder.push(botId);
+      broadcastRoom(roomId);
+      break;
+    }
+
     case 'HOST_START_GAME': {
       const playerInfo = socketToPlayer.get(ws);
       if (!playerInfo) return;
@@ -462,16 +497,31 @@ function handleClientMessage(ws: WebSocket, msg: any) {
       const room = rooms.get(roomId);
       if (!room || room.hostId !== playerId) return;
 
-      const playerList = Object.values(room.players);
-      if (playerList.length < 3) {
-        ws.send(
-          JSON.stringify({
-            type: 'ERROR',
-            message: 'Minimum 3 players required to start Social Wars.',
-          })
-        );
-        return;
+      // Auto-fill bots if fewer than 3 players
+      const botNames = ['Vikram (AI)', 'Arjun (AI)', 'Sai (AI)', 'Ananya (AI)'];
+      const botAvatars = ['🤖', '🦊', '🦁', '🦉'];
+      let bIdx = 0;
+      while (Object.keys(room.players).length < 3) {
+        const botId = `bot_${Date.now()}_${bIdx}`;
+        room.players[botId] = {
+          id: botId,
+          name: botNames[bIdx % botNames.length],
+          avatar: botAvatars[bIdx % botAvatars.length],
+          title: 'Tactical Bot',
+          badgeFrame: 'border-cyan-500/50',
+          isHost: false,
+          isReady: true,
+          isConnected: true,
+          score: 0,
+          sessionToken: `token_${botId}`,
+          lastActive: Date.now(),
+          hintsUsed: 0,
+        };
+        room.playerOrder.push(botId);
+        bIdx++;
       }
+
+      const playerList = Object.values(room.players);
 
       room.phase = 'PLAYING';
       const gameType = room.settings.selectedGame;

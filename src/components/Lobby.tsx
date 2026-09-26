@@ -15,6 +15,7 @@ import {
   QrCode,
   AlertCircle,
   Smartphone,
+  Bot,
 } from 'lucide-react';
 import { RoomState, GameType, GlobalDifficulty, RoomSettings } from '../types/game';
 import { socket } from '../services/socket';
@@ -65,13 +66,17 @@ export const Lobby: React.FC<LobbyProps> = ({
     window.open(url, '_blank');
   };
 
+  const handleAddBot = () => {
+    sounds.playClick();
+    socket.addBotPlayer();
+  };
+
   const handleToggleReady = () => {
     sounds.playClick();
     socket.setReady();
   };
 
   const handleStartGame = () => {
-    if (!isReadyToStart) return;
     sounds.playGavel();
     socket.startGame();
   };
@@ -144,6 +149,16 @@ export const Lobby: React.FC<LobbyProps> = ({
           >
             <ExternalLink className="w-4 h-4" /> +1 Test Player Tab
           </button>
+
+          {isHost && playerCount < 5 && (
+            <button
+              onClick={handleAddBot}
+              className="px-4 py-2.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold flex items-center gap-2 transition active:scale-95"
+              title="Add an AI agent bot immediately to this room"
+            >
+              <Bot className="w-4 h-4" /> + Add AI Bot
+            </button>
+          )}
         </div>
       </div>
 
@@ -262,7 +277,7 @@ export const Lobby: React.FC<LobbyProps> = ({
             {Array.from({ length: Math.max(0, 5 - playerCount) }).map((_, idx) => (
               <div
                 key={`empty_${idx}`}
-                className="p-3.5 rounded-2xl border border-dashed border-slate-800/80 bg-slate-950/20 flex items-center justify-between text-slate-600 text-xs"
+                className="p-3.5 rounded-2xl border border-dashed border-slate-800/80 bg-slate-950/20 flex items-center justify-between text-slate-500 text-xs"
               >
                 <div className="flex items-center gap-3">
                   <div className="w-11 h-11 rounded-xl border border-dashed border-slate-800 flex items-center justify-center text-slate-700">
@@ -270,7 +285,16 @@ export const Lobby: React.FC<LobbyProps> = ({
                   </div>
                   <span>Empty Player Slot {playerCount + idx + 1}</span>
                 </div>
-                <span className="text-[11px] italic">Awaiting connection</span>
+                {isHost ? (
+                  <button
+                    onClick={handleAddBot}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-900/60 font-bold text-[11px] flex items-center gap-1 transition active:scale-95"
+                  >
+                    <Bot className="w-3.5 h-3.5" /> + Add AI Bot
+                  </button>
+                ) : (
+                  <span className="text-[11px] italic">Awaiting connection</span>
+                )}
               </div>
             ))}
           </div>
@@ -396,20 +420,24 @@ export const Lobby: React.FC<LobbyProps> = ({
 
           {/* Launch Match Button */}
           <div className="pt-4 border-t border-slate-800 space-y-2">
-            {!isReadyToStart && (
-              <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 p-2.5 rounded-xl font-medium">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>Requires at least 3 players (currently {playerCount}/5).</span>
+            {playerCount < 3 && (
+              <div className="flex items-center gap-2 text-xs text-cyan-400 bg-cyan-950/40 border border-cyan-500/30 p-2.5 rounded-xl font-medium">
+                <Bot className="w-4 h-4 shrink-0 text-cyan-400" />
+                <span>
+                  {playerCount === 1 ? 'Solo mode:' : `${playerCount}/5 players:`} Starting will auto-fill with tactical AI bots to reach the 3-player minimum.
+                </span>
               </div>
             )}
 
             {isHost ? (
               <button
-                disabled={!isReadyToStart}
                 onClick={handleStartGame}
-                className="w-full py-4 bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 hover:from-amber-400 hover:to-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-sm rounded-2xl shadow-xl shadow-purple-500/20 transition active:scale-95 flex items-center justify-center gap-2 tracking-wider"
+                className="w-full py-4 bg-gradient-to-r from-amber-500 via-rose-500 to-purple-600 hover:from-amber-400 hover:to-purple-500 text-white font-black text-sm rounded-2xl shadow-xl shadow-purple-500/20 transition active:scale-95 flex items-center justify-center gap-2 tracking-wider cursor-pointer"
               >
-                <Play className="w-4 h-4 fill-white" /> START MATCH
+                <Play className="w-4 h-4 fill-white" />
+                {playerCount < 3
+                  ? `START MATCH (AUTO-FILL BOTS)`
+                  : `START MATCH (${playerCount} PLAYERS)`}
               </button>
             ) : (
               <div className="text-center py-3 text-xs text-slate-400 font-medium">
