@@ -1,5 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Users, Key, ArrowRight, ShieldCheck, Play, HelpCircle, Trophy } from 'lucide-react';
+import {
+  Sparkles,
+  Users,
+  Key,
+  ArrowRight,
+  ShieldCheck,
+  Play,
+  HelpCircle,
+  Trophy,
+  Loader2,
+} from 'lucide-react';
 import { socket } from '../services/socket';
 import { sounds } from '../services/sound';
 
@@ -16,6 +26,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenRules, onOpenLeade
   const [avatar, setAvatar] = useState('🐺');
   const [roomCode, setRoomCode] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    const unsubError = socket.on('ERROR', (data) => {
+      setErrorMsg(data.message);
+      setIsSubmitting(false);
+    });
+
+    return () => {
+      unsubError();
+    };
+  }, []);
 
   // Auto-fill from URL query param if someone clicks a shared link e.g. ?room=X7K92
   useEffect(() => {
@@ -42,6 +64,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenRules, onOpenLeade
     e.preventDefault();
     const name = playerName.trim() || 'Tactician 1';
     localStorage.setItem('sw_player_name', name);
+    setErrorMsg('');
+    setIsSubmitting(true);
     sounds.playClick();
     socket.createRoom(name, avatar, 'Rookie Tactician');
   };
@@ -54,6 +78,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenRules, onOpenLeade
     }
     const name = playerName.trim() || `Agent ${Math.floor(10 + Math.random() * 90)}`;
     localStorage.setItem('sw_player_name', name);
+    setErrorMsg('');
+    setIsSubmitting(true);
     sounds.playClick();
     socket.joinRoom(roomCode.trim(), name, avatar, 'Rookie Tactician');
   };
@@ -162,9 +188,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenRules, onOpenLeade
 
               <button
                 type="submit"
-                className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm rounded-2xl shadow-lg shadow-amber-500/25 transition active:scale-95 flex items-center justify-center gap-2"
+                disabled={isSubmitting}
+                className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 disabled:opacity-50 text-slate-950 font-black text-sm rounded-2xl shadow-lg shadow-amber-500/25 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
               >
-                CREATE ROOM <ArrowRight className="w-4 h-4" />
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                    <span>CREATING SECURE ROOM...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>CREATE ROOM</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </form>
           ) : (
@@ -187,10 +224,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onOpenRules, onOpenLeade
 
               <button
                 type="submit"
-                disabled={!roomCode.trim()}
-                className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 disabled:opacity-40 text-white font-black text-sm rounded-2xl shadow-lg shadow-purple-600/25 transition active:scale-95 flex items-center justify-center gap-2"
+                disabled={!roomCode.trim() || isSubmitting}
+                className="w-full py-3.5 bg-gradient-to-r from-purple-600 to-rose-600 hover:from-purple-500 hover:to-rose-500 disabled:opacity-40 text-white font-black text-sm rounded-2xl shadow-lg shadow-purple-600/25 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
               >
-                ENTER ROOM <ArrowRight className="w-4 h-4" />
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>CONNECTING TO ROOM {roomCode}...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>ENTER ROOM</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
               </button>
             </form>
           )}

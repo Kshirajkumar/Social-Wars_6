@@ -12,6 +12,7 @@ import {
   generateMurderMysteryGame,
   generateSecretAuctionGame,
 } from './procedural';
+import { p2pMesh } from './p2pMesh';
 
 type EngineBroadcast = (msg: any) => void;
 
@@ -20,17 +21,26 @@ class LocalRoomEngine {
   private broadcastCallback: EngineBroadcast | null = null;
   private channel: BroadcastChannel | null = null;
   private tickerInterval: any = null;
+  public activeRoomCode: string = '';
 
   constructor() {
     if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
       this.channel = new BroadcastChannel('social_wars_mesh');
       this.channel.onmessage = (event) => {
-        const { type, room, message, payload, targetPlayerId } = event.data;
+        const { type, room, message, payload, targetPlayerId, roomCode } = event.data;
+        const targetCode = (roomCode || room?.roomCode || '').toUpperCase().trim();
+
         if (room) {
           this.rooms.set(room.roomCode, room);
         }
-        if (this.broadcastCallback) {
-          this.broadcastCallback(event.data);
+
+        // Room-Scoped Event Filtering:
+        // Only deliver event to this client's active listener if the event targets this room
+        // or if this tab has not joined a room yet.
+        if (!this.activeRoomCode || !targetCode || targetCode === this.activeRoomCode) {
+          if (this.broadcastCallback) {
+            this.broadcastCallback(event.data);
+          }
         }
       };
     }
@@ -41,17 +51,100 @@ class LocalRoomEngine {
     }, 1000);
   }
 
+  public setActiveRoom(code: string) {
+    this.activeRoomCode = (code || '').toUpperCase().trim();
+  }
+
   public setBroadcast(cb: EngineBroadcast) {
     this.broadcastCallback = cb;
   }
 
+  public getRoom(roomCode: string): RoomState | undefined {
+    const code = roomCode.toUpperCase().trim();
+    let room = this.rooms.get(code);
+    if (!room && typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem(`sw_room_${code}`);
+      if (stored) {
+        try {
+          room = JSON.parse(stored);
+          if (room) {
+            this.rooms.set(code, room);
+          }
+        } catch {}
+      }
+    }
+    return room;
+  }
+
   private broadcast(msg: any) {
+    const targetCode = (msg.roomCode || msg.room?.roomCode || this.activeRoomCode || '').toUpperCase().trim();
+    const taggedMsg = targetCode ? { ...msg, roomCode: targetCode } : msg;
+
     if (this.channel) {
-      this.channel.postMessage(msg);
+      this.channel.postMessage(taggedMsg);
     }
+    // Broadcast to all connected guests over WebRTC DataChannels for this specific room
+    p2pMesh.broadcastToGuests(taggedMsg);
+
     if (this.broadcastCallback) {
-      this.broadcastCallback(msg);
+      this.broadcastCallback(taggedMsg);
     }
+  }
+
+  public handleGuestJoin(payload: any, guestPeerId?: string): RoomPlayer | null {
+    const { roomCode, playerName, avatar, title, badgeFrame, sessionToken, playerId } = payload;
+    const code = (roomCode || '').toUpperCase().trim();
+    const room = this.rooms.get(code);
+    if (!room) {
+      if (guestPeerId) {
+        p2pMesh.sendToGuest(guestPeerId, {
+          type: 'ERROR',
+          message: `Room "${code}" was not found on this Host.`,
+        });
+      }
+      return null;
+    }
+
+    const pId = playerId || `p_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const token = sessionToken || `token_${Math.random().toString(36).substring(2, 10)}`;
+
+    if (!room.players[pId]) {
+      room.players[pId] = {
+        id: pId,
+        name: playerName || `Player ${Object.keys(room.players).length + 1}`,
+        avatar: avatar || '🦊',
+        title: title || 'Rookie Tactician',
+        badgeFrame: badgeFrame || 'border-slate-700',
+        isHost: false,
+        isReady: false,
+        isConnected: true,
+        score: 0,
+        sessionToken: token,
+        lastActive: Date.now(),
+        hintsUsed: 0,
+      };
+      room.playerOrder.push(pId);
+    }
+
+    try {
+      localStorage.setItem(`sw_room_${code}`, JSON.stringify(room));
+    } catch {}
+
+    const response = {
+      type: 'ROOM_JOINED',
+      roomCode: code,
+      playerId: pId,
+      sessionToken: token,
+      walletBalance: 10000,
+      room,
+    };
+
+    if (guestPeerId) {
+      p2pMesh.sendToGuest(guestPeerId, response);
+    }
+
+    this.broadcast({ type: 'ROOM_UPDATE', room });
+    return room.players[pId];
   }
 
   private generateCode(): string {
@@ -143,60 +236,9 @@ class LocalRoomEngine {
             } catch {}
           }
 
-          // Fallback: If joining a room code on Vercel without prior host in same browser, auto-instantiate
-          const pId = playerId || `p_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-          const token = sessionToken || `token_${Math.random().toString(36).substring(2, 10)}`;
-
-          const hostPlayer: RoomPlayer = {
-            id: pId,
-            name: playerName || 'Player 1',
-            avatar: avatar || '🐺',
-            title: title || 'Rookie Tactician',
-            badgeFrame: badgeFrame || 'border-slate-700',
-            isHost: true,
-            isReady: true,
-            isConnected: true,
-            score: 0,
-            sessionToken: token,
-            lastActive: Date.now(),
-            hintsUsed: 0,
-          };
-
-          const newRoom: RoomState = {
-            roomCode: code || 'VCL01',
-            phase: 'LOBBY',
-            hostId: pId,
-            settings: {
-              selectedGame: 'BLUFF_CITY',
-              difficulty: 'BEGINNER',
-              level: 1,
-              matchLengthMinutes: 5,
-              hintsEnabled: true,
-              privateMessagingEnabled: true,
-              progressiveMode: true,
-            },
-            players: { [pId]: hostPlayer },
-            playerOrder: [pId],
-            eventLogs: [
-              {
-                id: `evt_${Date.now()}`,
-                type: 'ROOM_CREATED',
-                description: `Room ${code || 'VCL01'} created.`,
-                timestamp: Date.now(),
-              },
-            ],
-            paused: false,
-            seed: 42,
-          };
-
-          this.rooms.set(newRoom.roomCode, newRoom);
           this.broadcast({
-            type: 'ROOM_JOINED',
-            roomCode: newRoom.roomCode,
-            playerId: pId,
-            sessionToken: token,
-            walletBalance: 10000,
-            room: newRoom,
+            type: 'ERROR',
+            message: `Room "${code}" was not found. Please confirm the room code with the host!`,
           });
           return;
         }

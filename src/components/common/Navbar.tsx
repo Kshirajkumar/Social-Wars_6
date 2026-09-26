@@ -11,6 +11,7 @@ import {
   Coins,
   User,
   ShieldAlert,
+  LogOut,
 } from 'lucide-react';
 import { sounds } from '../../services/sound';
 import { socket } from '../../services/socket';
@@ -190,6 +191,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           >
             <User className="w-4 h-4" />
           </button>
+
+          {/* Leave Room Button */}
+          {room && (
+            <button
+              onClick={() => {
+                if (window.confirm('Are you sure you want to leave this room?')) {
+                  sounds.playClick();
+                  socket.leaveRoom();
+                }
+              }}
+              className="p-1.5 text-rose-400 hover:text-rose-300 bg-rose-950/40 hover:bg-rose-900/50 border border-rose-500/30 rounded-lg transition active:scale-95 ml-1"
+              title="Leave Room"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </header>

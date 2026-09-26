@@ -1,14 +1,16 @@
 import { RoomState, ChatMessage } from '../types/game';
 import { localEngine } from './localEngine';
+import { p2pMesh } from './p2pMesh';
 
 type MessageHandler = (data: any) => void;
 
 class SocketService {
   private ws: WebSocket | null = null;
   private listeners: Map<string, Set<MessageHandler>> = new Map();
-  private reconnectTimer: any = null;
   private isConnecting: boolean = false;
   public isFallbackMode: boolean = false;
+  public isP2PHost: boolean = false;
+  public isP2PGuest: boolean = false;
 
   public playerId: string = '';
   public sessionToken: string = '';
@@ -16,8 +18,12 @@ class SocketService {
   public walletBalance: number = 10000;
 
   constructor() {
-    this.playerId = sessionStorage.getItem('sw_player_id') || `p_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    this.sessionToken = sessionStorage.getItem('sw_session_token') || `token_${Math.random().toString(36).substring(2, 10)}`;
+    this.playerId =
+      sessionStorage.getItem('sw_player_id') ||
+      `p_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    this.sessionToken =
+      sessionStorage.getItem('sw_session_token') ||
+      `token_${Math.random().toString(36).substring(2, 10)}`;
     this.currentRoomCode = sessionStorage.getItem('sw_room_code') || '';
 
     sessionStorage.setItem('sw_player_id', this.playerId);
@@ -26,6 +32,20 @@ class SocketService {
     // Bind local engine broadcasts to this service
     localEngine.setBroadcast((msg: any) => {
       this.handleServerMessage(msg);
+    });
+
+    // Bind P2P Mesh messages across devices (WebRTC)
+    p2pMesh.onMessage((data: any, senderPeerId?: string) => {
+      if (this.isP2PHost) {
+        if (data.type === 'JOIN_ROOM') {
+          localEngine.handleGuestJoin(data.payload, senderPeerId);
+        } else {
+          localEngine.handleAction(data.playerId, data.type, data.payload);
+        }
+      } else {
+        // Guest receives authoritative state from Host
+        this.handleServerMessage(data);
+      }
     });
   }
 
@@ -37,13 +57,12 @@ class SocketService {
     this.isConnecting = true;
 
     return new Promise((resolve) => {
-      // Optional explicit external WebSocket URL via environment variable
       const customWsUrl = (import.meta as any).env?.VITE_WS_URL;
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
       const wsUrl = customWsUrl || `${protocol}//${host}`;
 
-      // If on Vercel and no custom WS URL provided, immediately activate resilient local engine
+      // If on Vercel and no custom WS URL provided, activate P2P WebRTC mesh
       if (!customWsUrl && window.location.hostname.includes('vercel.app')) {
         this.isFallbackMode = true;
         this.isConnecting = false;
@@ -54,7 +73,6 @@ class SocketService {
       try {
         this.ws = new WebSocket(wsUrl);
 
-        // Safety timeout: if WebSocket doesn't connect in 1.2s, enable fallback engine so buttons never stall
         const timeout = setTimeout(() => {
           if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
             this.isFallbackMode = true;
@@ -86,7 +104,6 @@ class SocketService {
         this.ws.onclose = () => {
           clearTimeout(timeout);
           this.isConnecting = false;
-          // Switch seamlessly to fallback mode on connection drop
           this.isFallbackMode = true;
           resolve();
         };
@@ -108,15 +125,31 @@ class SocketService {
   public handleServerMessage(msg: any) {
     const { type } = msg;
 
+    // Strict Room-Based Scoping & Namespace Isolation:
+    // If the client is already in a room, verify that incoming events match this room code,
+    // preventing cross-room collisions or leaked updates from foreign lobbies.
+    const incomingRoomCode = (msg.roomCode || msg.room?.roomCode || '').toUpperCase().trim();
+    if (
+      this.currentRoomCode &&
+      incomingRoomCode &&
+      incomingRoomCode !== this.currentRoomCode &&
+      type !== 'ROOM_JOINED'
+    ) {
+      console.warn(`[Socket Scoping] Ignored event for room ${incomingRoomCode} while in ${this.currentRoomCode}`);
+      return;
+    }
+
     if (type === 'ROOM_JOINED') {
       this.playerId = msg.playerId;
       this.sessionToken = msg.sessionToken;
-      this.currentRoomCode = msg.roomCode;
+      this.currentRoomCode = (msg.roomCode || '').toUpperCase().trim();
       this.walletBalance = msg.walletBalance;
 
       sessionStorage.setItem('sw_player_id', this.playerId);
       sessionStorage.setItem('sw_session_token', this.sessionToken);
       sessionStorage.setItem('sw_room_code', this.currentRoomCode);
+
+      localEngine.setActiveRoom(this.currentRoomCode);
     }
 
     if (type === 'HINT_DELIVERED') {
@@ -145,37 +178,131 @@ class SocketService {
   }
 
   public send(type: string, payload: any = {}) {
+    const scopedPayload = {
+      ...payload,
+      roomCode: payload.roomCode || this.currentRoomCode,
+    };
+
     // If WebSocket is open and active, send to real-time server
     if (this.ws && this.ws.readyState === WebSocket.OPEN && !this.isFallbackMode) {
-      this.ws.send(JSON.stringify({ type, payload }));
+      this.ws.send(JSON.stringify({ type, payload: scopedPayload }));
       return;
     }
 
-    // Otherwise, immediately execute in client authoritative engine with 0ms latency!
-    localEngine.handleAction(this.playerId, type, payload);
+    // If Guest in P2P WebRTC mesh, forward action to the Host
+    if (this.isP2PGuest) {
+      p2pMesh.send({
+        type,
+        playerId: this.playerId,
+        roomCode: this.currentRoomCode,
+        payload: scopedPayload,
+      });
+      return;
+    }
+
+    // If Host, execute in authoritative local engine (which broadcasts to all guests)
+    localEngine.handleAction(this.playerId, type, scopedPayload);
   }
 
-  public createRoom(playerName: string, avatar: string, title?: string, badgeFrame?: string) {
-    this.send('CREATE_ROOM', {
+  public async createRoom(playerName: string, avatar: string, title?: string, badgeFrame?: string) {
+    // If WebSocket is active, create on server
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && !this.isFallbackMode) {
+      this.send('CREATE_ROOM', {
+        playerName,
+        avatar,
+        title,
+        badgeFrame,
+        sessionToken: this.sessionToken,
+      });
+      return;
+    }
+
+    // Serverless / Vercel Host Mode
+    this.isP2PHost = true;
+    this.isP2PGuest = false;
+
+    localEngine.handleAction(this.playerId, 'CREATE_ROOM', {
       playerName,
       avatar,
       title,
       badgeFrame,
       sessionToken: this.sessionToken,
     });
+
+    if (this.currentRoomCode) {
+      try {
+        await p2pMesh.hostRoom(this.currentRoomCode);
+        console.log('[Socket] P2P WebRTC Host active for room:', this.currentRoomCode);
+      } catch (err) {
+        console.warn('[Socket] Could not open P2P Host peer:', err);
+      }
+    }
   }
 
-  public joinRoom(roomCode: string, playerName: string, avatar: string, title?: string, badgeFrame?: string) {
-    this.currentRoomCode = roomCode.toUpperCase().trim();
-    sessionStorage.setItem('sw_room_code', this.currentRoomCode);
-    this.send('JOIN_ROOM', {
-      roomCode: this.currentRoomCode,
-      playerName,
-      avatar,
-      title,
-      badgeFrame,
-      sessionToken: this.sessionToken,
-    });
+  public async joinRoom(
+    roomCode: string,
+    playerName: string,
+    avatar: string,
+    title?: string,
+    badgeFrame?: string
+  ) {
+    const code = roomCode.toUpperCase().trim();
+    this.currentRoomCode = code;
+    sessionStorage.setItem('sw_room_code', code);
+
+    // If WebSocket is active, join on server
+    if (this.ws && this.ws.readyState === WebSocket.OPEN && !this.isFallbackMode) {
+      this.send('JOIN_ROOM', {
+        roomCode: code,
+        playerName,
+        avatar,
+        title,
+        badgeFrame,
+        sessionToken: this.sessionToken,
+      });
+      return;
+    }
+
+    // If room is present in local memory (e.g. +1 test tab on same browser)
+    if (localEngine.getRoom(code)) {
+      this.isP2PHost = true;
+      this.isP2PGuest = false;
+      localEngine.handleAction(this.playerId, 'JOIN_ROOM', {
+        roomCode: code,
+        playerName,
+        avatar,
+        title,
+        badgeFrame,
+        sessionToken: this.sessionToken,
+      });
+      return;
+    }
+
+    // Cross-device WebRTC P2P Guest Connection
+    this.isP2PHost = false;
+    this.isP2PGuest = true;
+
+    try {
+      await p2pMesh.joinRoom(code, {
+        type: 'JOIN_ROOM',
+        playerId: this.playerId,
+        payload: {
+          roomCode: code,
+          playerName,
+          avatar,
+          title,
+          badgeFrame,
+          sessionToken: this.sessionToken,
+          playerId: this.playerId,
+        },
+      });
+      console.log('[Socket] Connected as P2P Guest to room:', code);
+    } catch (err: any) {
+      this.handleServerMessage({
+        type: 'ERROR',
+        message: `Could not connect to Room "${code}". Make sure the Host has created the room first and is active!`,
+      });
+    }
   }
 
   public reconnect() {
@@ -234,6 +361,7 @@ class SocketService {
   public leaveRoom() {
     this.currentRoomCode = '';
     sessionStorage.removeItem('sw_room_code');
+    p2pMesh.destroy();
     window.location.reload();
   }
 }

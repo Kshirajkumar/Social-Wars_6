@@ -314,6 +314,16 @@ function handleClientMessage(ws: WebSocket, msg: any) {
         seed: Math.floor(Math.random() * 1000000),
       };
 
+      // Detach from any prior room to guarantee strict room scoping
+      const prior = socketToPlayer.get(ws);
+      if (prior && prior.roomId !== code) {
+        const priorRoom = rooms.get(prior.roomId);
+        if (priorRoom && priorRoom.players[prior.playerId]) {
+          priorRoom.players[prior.playerId].isConnected = false;
+          broadcastRoom(prior.roomId);
+        }
+      }
+
       rooms.set(code, newRoom);
       socketToPlayer.set(ws, { roomId: code, playerId });
       playerSockets.set(playerId, ws);
@@ -341,6 +351,16 @@ function handleClientMessage(ws: WebSocket, msg: any) {
       if (!room) {
         ws.send(JSON.stringify({ type: 'ERROR', message: 'Room not found. Please check code.' }));
         return;
+      }
+
+      // Detach from any prior room to guarantee strict room scoping
+      const priorJoin = socketToPlayer.get(ws);
+      if (priorJoin && priorJoin.roomId !== upperCode) {
+        const priorRoom = rooms.get(priorJoin.roomId);
+        if (priorRoom && priorRoom.players[priorJoin.playerId]) {
+          priorRoom.players[priorJoin.playerId].isConnected = false;
+          broadcastRoom(priorJoin.roomId);
+        }
       }
 
       // Check for reconnection using sessionToken
